@@ -50,6 +50,10 @@ export class Dorothy extends BaseAgent {
         {
           name: 'answer_question',
           description: 'Answer financial questions using ONLY SEC data'
+        },
+        {
+          name: 'analyze_text',
+          description: 'Analyze provided SEC filing text (for testing/demo purposes)'
         }
       ],
       schema: 'dorothy_finance'
@@ -77,10 +81,12 @@ export class Dorothy extends BaseAgent {
         return await this.assessHealth(params, context);
       case 'answer_question':
         return await this.answerQuestion(params, context);
+      case 'analyze_text':
+        return await this.analyzeText(params, context);
       default:
         return {
           success: false,
-          error: `Unknown task: ${task}. Available: fetch_sec_data, analyze_filing, extract_financials, calculate_ratios, compare_periods, assess_health, answer_question`
+          error: `Unknown task: ${task}. Available: fetch_sec_data, analyze_filing, extract_financials, calculate_ratios, compare_periods, assess_health, answer_question, analyze_text`
         };
     }
   }
@@ -531,6 +537,54 @@ If the answer is not in the filings, explicitly state "This information is not a
       return {
         success: false,
         error: `Question answering failed: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Analyze provided SEC filing text (for testing/demo when SEC API unavailable)
+   */
+  private async analyzeText(params: any, context: AgentContext): Promise<TaskResult> {
+    const { company, filingType, filingDate, text, question } = params;
+
+    if (!text) {
+      return {
+        success: false,
+        error: 'SEC filing text is required'
+      };
+    }
+
+    try {
+      const analysisPrompt = `COMPANY: ${company}
+FILING: ${filingType} filed on ${filingDate}
+
+${question ? `QUESTION: ${question}` : 'Analyze this SEC filing.'}
+
+SEC FILING DATA:
+${this.truncateContent(text, 15000)}
+
+Answer using ONLY the SEC filing data provided above.
+If information is not in the filing, explicitly state "This information is not available in the SEC filing."
+Cite specific sections and quote exact numbers.`;
+
+      const analysis = await this.callLLM(analysisPrompt, 0.3); // Low temperature for accuracy
+
+      return {
+        success: true,
+        data: {
+          company,
+          filing: {
+            type: filingType,
+            date: filingDate
+          },
+          analysis,
+          source: `SEC ${filingType} filing dated ${filingDate}`
+        }
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: `Text analysis failed: ${error.message}`
       };
     }
   }
