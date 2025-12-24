@@ -1,5 +1,6 @@
 import { Agent, AgentContext, AgentMessage, AgentMetadata, AgentStatus, TaskResult } from '../types/agent.js';
 import { query } from '../db/connection.js';
+import { glmClient, GLMMessage } from '../llm/GLMClient.js';
 
 export abstract class BaseAgent implements Agent {
   public metadata: AgentMetadata;
@@ -7,6 +8,8 @@ export abstract class BaseAgent implements Agent {
   protected currentTask?: string;
   protected lastActivity?: Date;
   protected messageHandlers: Map<string, (message: AgentMessage) => Promise<void>>;
+  protected systemPrompt: string = '';
+  protected conversationHistory: GLMMessage[] = [];
 
   constructor(metadata: AgentMetadata) {
     this.metadata = metadata;
@@ -112,5 +115,85 @@ export abstract class BaseAgent implements Agent {
 
     // This will be implemented by the orchestrator
     console.log(`[${this.metadata.name}] Sending message to ${to}:`, type);
+  }
+
+  /**
+   * Call LLM with system prompt and user message
+   */
+  protected async callLLM(userMessage: string, temperature: number = 0.7): Promise<string> {
+    if (!this.systemPrompt) {
+      throw new Error(`${this.metadata.name}: systemPrompt not set`);
+    }
+
+    if (!glmClient.isConfigured()) {
+      throw new Error('GLM API is not configured. Please set GLM_API_KEY in .env');
+    }
+
+    try {
+      const response = await glmClient.chatWithSystem(
+        this.systemPrompt,
+        userMessage,
+        temperature
+      );
+      return response;
+    } catch (error) {
+      console.error(`[${this.metadata.name}] LLM call failed:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Call LLM with conversation history
+   */
+  protected async callLLMWithHistory(userMessage: string, temperature: number = 0.7): Promise<string> {
+    if (!this.systemPrompt) {
+      throw new Error(`${this.metadata.name}: systemPrompt not set`);
+    }
+
+    if (!glmClient.isConfigured()) {
+      throw new Error('GLM API is not configured. Please set GLM_API_KEY in .env');
+    }
+
+    // Add user message to history
+    this.conversationHistory.push({ role: 'user', content: userMessage });
+
+    // Prepare messages with system prompt
+    const messages: GLMMessage[] = [
+      { role: 'system', content: this.systemPrompt },
+      ...this.conversationHistory
+    ];
+
+    try {
+      const response = await glmClient.chatWithHistory(messages, temperature);
+
+      // Add assistant response to history
+      this.conversationHistory.push({ role: 'assistant', content: response });
+
+      return response;
+    } catch (error) {
+      console.error(`[${this.metadata.name}] LLM call failed:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Clear conversation history
+   */
+  protected clearHistory(): void {
+    this.conversationHistory = [];
+  }
+
+  /**
+   * Get conversation history
+   */
+  protected getHistory(): GLMMessage[] {
+    return [...this.conversationHistory];
+  }
+
+  /**
+   * Set system prompt for this agent
+   */
+  protected setSystemPrompt(prompt: string): void {
+    this.systemPrompt = prompt;
   }
 }
