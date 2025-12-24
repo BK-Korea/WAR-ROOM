@@ -1,0 +1,289 @@
+import axios, { AxiosInstance } from 'axios';
+import { query } from '../db/connection.js';
+
+/**
+ * SEC Edgar API Client
+ *
+ * Fetches real SEC filings from Edgar database
+ * Adheres to SEC fair access rules (max 10 requests/second)
+ */
+
+export interface SECFiling {
+  cik: string;
+  companyName: string;
+  filingType: string; // 10-K, 10-Q, 8-K, etc.
+  filingDate: string;
+  reportDate: string;
+  accessionNumber: string;
+  fileUrl: string;
+}
+
+export interface SECCompanyInfo {
+  cik: string;
+  name: string;
+  tickers: string[];
+  exchanges: string[];
+}
+
+export class SECClient {
+  private client: AxiosInstance;
+  private userAgent: string;
+  private baseURL: string = 'https://data.sec.gov';
+  private lastRequestTime: number = 0;
+  private minRequestInterval: number = 100; // 100ms = 10 requests/second max
+
+  constructor(userAgent: string = 'WAR-ROOM Dorothy dorothy@war-room.ai') {
+    this.userAgent = userAgent;
+
+    this.client = axios.create({
+      baseURL: this.baseURL,
+      headers: {
+        'User-Agent': this.userAgent,
+        'Accept': 'application/json'
+      },
+      timeout: 30000
+    });
+  }
+
+  /**
+   * Rate limiting to comply with SEC rules
+   */
+  private async rateLimit(): Promise<void> {
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+
+    if (timeSinceLastRequest < this.minRequestInterval) {
+      await new Promise(resolve =>
+        setTimeout(resolve, this.minRequestInterval - timeSinceLastRequest)
+      );
+    }
+
+    this.lastRequestTime = Date.now();
+  }
+
+  /**
+   * Get company info by ticker symbol
+   */
+  async getCompanyByTicker(ticker: string): Promise<SECCompanyInfo | null> {
+    await this.rateLimit();
+
+    try {
+      // SEC maintains a company tickers JSON file
+      const response = await this.client.get('/files/company_tickers.json');
+      const companies = Object.values(response.data) as any[];
+
+      const company = companies.find((c: any) =>
+        c.ticker.toUpperCase() === ticker.toUpperCase()
+      );
+
+      if (!company) {
+        return null;
+      }
+
+      return {
+        cik: String(company.cik_str).padStart(10, '0'),
+        name: company.title,
+        tickers: [company.ticker],
+        exchanges: []
+      };
+    } catch (error) {
+      console.error('Error fetching company by ticker:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get company info by CIK (Central Index Key)
+   */
+  async getCompanyByCIK(cik: string): Promise<SECCompanyInfo | null> {
+    await this.rateLimit();
+
+    const paddedCIK = cik.padStart(10, '0');
+
+    try {
+      const response = await this.client.get(
+        `/submissions/CIK${paddedCIK}.json`
+      );
+
+      return {
+        cik: paddedCIK,
+        name: response.data.name,
+        tickers: response.data.tickers || [],
+        exchanges: response.data.exchanges || []
+      };
+    } catch (error) {
+      console.error('Error fetching company by CIK:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get recent filings for a company
+   */
+  async getFilings(
+    cik: string,
+    filingType?: string,
+    limit: number = 10
+  ): Promise<SECFiling[]> {
+    await this.rateLimit();
+
+    const paddedCIK = cik.padStart(10, '0');
+
+    try {
+      const response = await this.client.get(
+        `/submissions/CIK${paddedCIK}.json`
+      );
+
+      const filings = response.data.filings.recent;
+      const results: SECFiling[] = [];
+
+      for (let i = 0; i < filings.accessionNumber.length && results.length < limit; i++) {
+        const type = filings.form[i];
+
+        // Filter by filing type if specified
+        if (filingType && type !== filingType) {
+          continue;
+        }
+
+        const accessionNumber = filings.accessionNumber[i];
+        const accessionNumberNoHyphens = accessionNumber.replace(/-/g, '');
+
+        results.push({
+          cik: paddedCIK,
+          companyName: response.data.name,
+          filingType: type,
+          filingDate: filings.filingDate[i],
+          reportDate: filings.reportDate[i],
+          accessionNumber: accessionNumber,
+          fileUrl: `https://www.sec.gov/Archives/edgar/data/${parseInt(paddedCIK)}/${accessionNumberNoHyphens}/${accessionNumber}.txt`
+        });
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Error fetching filings:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Download filing content
+   */
+  async downloadFiling(filing: SECFiling): Promise<string> {
+    await this.rateLimit();
+
+    try {
+      // For HTML filings, construct the primary document URL
+      const accessionNumberNoHyphens = filing.accessionNumber.replace(/-/g, '');
+
+      // Try to get the primary document (usually the -index.html or first .htm file)
+      const indexUrl = `https://www.sec.gov/cgi-bin/viewer?action=view&cik=${filing.cik}&accession_number=${filing.accessionNumber}`;
+
+      // Download the main filing document
+      const response = await axios.get(filing.fileUrl, {
+        headers: {
+          'User-Agent': this.userAgent
+        },
+        timeout: 30000
+      });
+
+      return response.data;
+    } catch (error) {
+      console.error('Error downloading filing:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get financial data from XBRL
+   * SEC provides company facts in JSON format
+   */
+  async getCompanyFacts(cik: string): Promise<any> {
+    await this.rateLimit();
+
+    const paddedCIK = cik.padStart(10, '0');
+
+    try {
+      const response = await this.client.get(
+        `/api/xbrl/companyfacts/CIK${paddedCIK}.json`
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching company facts:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Store filing in database
+   */
+  async storeFiling(
+    companyId: number,
+    filing: SECFiling,
+    content: string
+  ): Promise<number> {
+    const result = await query(`
+      INSERT INTO dorothy_finance.sec_filings (
+        company_id, cik, filing_type, filing_date, report_date,
+        accession_number, file_url, raw_content
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (accession_number) DO UPDATE
+      SET raw_content = EXCLUDED.raw_content,
+          updated_at = CURRENT_TIMESTAMP
+      RETURNING id
+    `, [
+      companyId,
+      filing.cik,
+      filing.filingType,
+      filing.filingDate,
+      filing.reportDate,
+      filing.accessionNumber,
+      filing.fileUrl,
+      content
+    ]);
+
+    return result.rows[0].id;
+  }
+
+  /**
+   * Store parsed financial data
+   */
+  async storeFinancialData(
+    filingId: number,
+    statementType: string,
+    periodEnd: string,
+    data: any
+  ): Promise<number> {
+    const result = await query(`
+      INSERT INTO dorothy_finance.sec_financial_data (
+        filing_id, statement_type, period_end, data
+      )
+      VALUES ($1, $2, $3, $4)
+      RETURNING id
+    `, [
+      filingId,
+      statementType,
+      periodEnd,
+      JSON.stringify(data)
+    ]);
+
+    return result.rows[0].id;
+  }
+
+  /**
+   * Check if filing already exists
+   */
+  async filingExists(accessionNumber: string): Promise<boolean> {
+    const result = await query(`
+      SELECT id FROM dorothy_finance.sec_filings
+      WHERE accession_number = $1
+    `, [accessionNumber]);
+
+    return result.rowCount > 0;
+  }
+}
+
+// Singleton instance
+export const secClient = new SECClient();
