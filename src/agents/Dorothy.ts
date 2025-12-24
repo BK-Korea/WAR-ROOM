@@ -1,7 +1,7 @@
 import { BaseAgent } from './BaseAgent.js';
 import { AgentContext, TaskResult } from '../types/agent.js';
 import { query } from '../db/connection.js';
-import { DOROTHY_SYSTEM_PROMPT, DOROTHY_TASK_PROMPTS } from '../prompts/dorothy.ts';
+import { DOROTHY_SYSTEM_PROMPT, DOROTHY_TASK_PROMPTS } from '../prompts/dorothy.js';
 import { secClient, SECFiling } from '../services/SECClient.js';
 
 /**

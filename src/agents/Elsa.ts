@@ -37,10 +37,14 @@ export class Elsa extends BaseAgent {
 
   private async loadGuardrails(): Promise<void> {
     // Load active guardrails into memory for quick checking
-    const guardrails = await query(`
-      SELECT * FROM elsa_risk.guardrails WHERE is_active = true
-    `);
-    console.log(`Loaded ${guardrails.rowCount} active guardrails`);
+    try {
+      const guardrails = await query(`
+        SELECT * FROM elsa_risk.guardrails WHERE is_active = true
+      `);
+      console.log(`Loaded ${guardrails.rowCount} active guardrails`);
+    } catch (error) {
+      console.warn('⚠️  Could not load guardrails (DB not available)');
+    }
   }
 
   protected setupMessageHandlers(): void {
