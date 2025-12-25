@@ -278,7 +278,7 @@ async function main() {
 
   const aliceAnalysis = await warRoom.executeTask(
     'Alice',
-    'strategic_analysis',
+    'analyze_strategy',
     {
       context: `Beta Technologies (eVTOL 항공기 제조사)의 재무 분석 결과:
 
