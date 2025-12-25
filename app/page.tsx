@@ -106,32 +106,10 @@ export default function ChatPage() {
 
     setInput('');
     setIsLoading(true);
-    setLoadingStatus('질문을 분석하고 있어...');
+    setLoadingStatus('에이전트 시작 중...');
 
     try {
-      // Predict which agents will be used based on keywords
-      const lowerInput = input.toLowerCase();
-      const hasDorothy = lowerInput.includes('재무') || lowerInput.includes('sec') ||
-                         lowerInput.includes('financial') || lowerInput.includes('주식') ||
-                         lowerInput.includes('실적') || lowerInput.includes('burn');
-      const hasAlice = lowerInput.includes('전략') || lowerInput.includes('비즈니스') ||
-                       lowerInput.includes('business') || lowerInput.includes('model') ||
-                       lowerInput.includes('모델') || lowerInput.includes('분석') ||
-                       lowerInput.includes('현황');
-
-      if (hasDorothy) {
-        setLoadingStatus('Dorothy (재무 분석가) 작업 중...');
-        // Simulate Dorothy's workflow
-        setTimeout(() => setLoadingStatus('회사 정보 추출 중...'), 500);
-        setTimeout(() => setLoadingStatus('SEC 데이터 검색 중...'), 1500);
-        setTimeout(() => setLoadingStatus('재무 데이터 분석 중...'), 3000);
-      } else if (hasAlice) {
-        setLoadingStatus('Alice (전략 컨설턴트) 작업 중...');
-        setTimeout(() => setLoadingStatus('비즈니스 모델 분석 중...'), 500);
-      } else {
-        setLoadingStatus('에이전트 선택 중...');
-      }
-
+      // Use fetch with streaming (SSE)
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -141,14 +119,55 @@ export default function ChatPage() {
         }),
       });
 
-      setLoadingStatus('응답 처리 중...');
-      const data = await response.json();
-
-      if (data.error) {
-        throw new Error(data.error);
+      if (!response.ok) {
+        throw new Error('API request failed');
       }
 
-      const assistantMessages: Message[] = data.responses.map((r: any) => ({
+      if (!response.body) {
+        throw new Error('No response body');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalResponses: any[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.trim() || !line.startsWith('data: ')) continue;
+
+          try {
+            const jsonData = JSON.parse(line.substring(6));
+
+            switch (jsonData.type) {
+              case 'status':
+                // Update loading status in real-time!
+                setLoadingStatus(jsonData.data.message);
+                break;
+              case 'responses':
+                finalResponses = jsonData.data.responses;
+                break;
+              case 'error':
+                throw new Error(jsonData.data.message);
+              case 'done':
+                // Stream completed
+                break;
+            }
+          } catch (parseError) {
+            console.error('Error parsing SSE data:', parseError);
+          }
+        }
+      }
+
+      // Add assistant messages after stream completes
+      const assistantMessages: Message[] = finalResponses.map((r: any) => ({
         role: 'assistant' as const,
         content: r.content,
         agent: r.agent,

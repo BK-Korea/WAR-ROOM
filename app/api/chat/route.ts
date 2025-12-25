@@ -70,103 +70,135 @@ export async function POST(req: NextRequest) {
     console.log(`[WAR-ROOM] 새 질문 받음: "${message}"`);
     console.log('═══════════════════════════════════════════════════\n');
 
-    const warRoom = await getWarRoom();
-    const context: AgentContext = {
-      projectId: 1, // Default project
-    };
+    // Create a streaming response
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        // Helper function to send SSE message
+        const sendEvent = (type: string, data: any) => {
+          const message = `data: ${JSON.stringify({ type, data })}\n\n`;
+          controller.enqueue(encoder.encode(message));
+        };
 
-    // 질문 분석해서 적합한 에이전트 선택
-    const selectedAgents = selectAgents(message);
-    console.log(`[Auto-Select] 선택된 에이전트: ${selectedAgents.join(', ')}`);
+        try {
+          const warRoom = await getWarRoom();
+          const context: AgentContext = {
+            projectId: 1,
+          };
 
-    const responses: Array<{ agent: string; content: string; emoji: string; status?: string }> = [];
+          const selectedAgents = selectAgents(message);
+          console.log(`[Auto-Select] 선택된 에이전트: ${selectedAgents.join(', ')}`);
 
-    // 선택된 에이전트들이 순차적으로 응답
-    for (const agentName of selectedAgents) {
-      try {
-        let result;
-        let content: string;
+          sendEvent('agents', { agents: selectedAgents });
 
-        if (agentName === 'Dorothy') {
-          console.log('\n[Dorothy] ▶ 시작: SEC 데이터 기반 재무 분석');
-          console.log('[Dorothy] 질문:', message);
+          const responses: Array<{ agent: string; content: string; emoji: string; status?: string }> = [];
 
-          // Use answer_question which auto-downloads SEC data if needed
-          result = await warRoom.executeTask(
-            'Dorothy',
-            'answer_question',
-            {
-              question: message,
-              // ticker and cik will be auto-extracted from the question
-            },
-            context
-          );
+          for (const agentName of selectedAgents) {
+            try {
+              let result;
+              let content: string;
 
-          console.log('[Dorothy] ✓ 완료:', result.success ? '성공' : '실패');
-          if (!result.success) {
-            console.log('[Dorothy] ✗ 에러:', result.error);
+              if (agentName === 'Dorothy') {
+                sendEvent('status', { agent: 'Dorothy', message: 'Dorothy (재무 분석가) 시작...' });
+                console.log('\n[Dorothy] ▶ 시작: SEC 데이터 기반 재무 분석');
+                console.log('[Dorothy] 질문:', message);
+
+                // Create progress callback
+                const onProgress = (status: string) => {
+                  console.log(`[Dorothy Progress] ${status}`);
+                  sendEvent('status', { agent: 'Dorothy', message: status });
+                };
+
+                result = await warRoom.executeTask(
+                  'Dorothy',
+                  'answer_question',
+                  {
+                    question: message,
+                    onProgress,  // Pass progress callback
+                  },
+                  context
+                );
+
+                console.log('[Dorothy] ✓ 완료:', result.success ? '성공' : '실패');
+                if (!result.success) {
+                  console.log('[Dorothy] ✗ 에러:', result.error);
+                } else {
+                  console.log('[Dorothy] ✓ 사용된 filing:', result.data.sourcesUsed?.map((s: any) => `${s.type} (${s.date})`).join(', ') || 'N/A');
+                }
+
+                content = result.success ? (result.data.answer || '분석 결과가 없어') : `❌ ${result.error}`;
+
+                if (result.success) {
+                  responses.push({
+                    agent: 'Dorothy',
+                    content,
+                    emoji: '💼',
+                    status: result.data.sourcesUsed ? 'SEC 데이터 기반' : '데이터 없음'
+                  });
+                }
+              } else if (agentName === 'Alice') {
+                sendEvent('status', { agent: 'Alice', message: 'Alice (전략 컨설턴트) 시작...' });
+                console.log('\n[Alice] ▶ 시작: 전략 컨설팅');
+                console.log('[Alice] 질문:', message);
+
+                result = await warRoom.executeTask(
+                  'Alice',
+                  'consult',
+                  {
+                    query: message,
+                    useHistory: false,
+                  },
+                  context
+                );
+
+                console.log('[Alice] ✓ 완료:', result.success ? '성공' : '실패');
+
+                content = result.success ? (result.data.response || '응답이 없어') : `❌ ${result.error}`;
+
+                if (result.success) {
+                  responses.push({
+                    agent: 'Alice',
+                    content,
+                    emoji: '💡',
+                    status: '전략 분석 완료'
+                  });
+                }
+              }
+            } catch (agentError) {
+              console.error(`[${agentName}] Error:`, agentError);
+              sendEvent('error', { agent: agentName, message: `${agentName} 실행 중 오류 발생` });
+            }
+          }
+
+          // Send final responses
+          if (responses.length === 0) {
+            sendEvent('error', { message: '모든 에이전트가 응답에 실패했어' });
           } else {
-            console.log('[Dorothy] ✓ 사용된 filing:', result.data.sourcesUsed?.map((s: any) => `${s.type} (${s.date})`).join(', ') || 'N/A');
+            sendEvent('responses', { responses });
           }
 
-          content = result.success ? (result.data.answer || '분석 결과가 없어') : `❌ ${result.error}`;
+          sendEvent('done', {});
+          controller.close();
 
-          if (result.success) {
-            responses.push({
-              agent: 'Dorothy',
-              content,
-              emoji: '💼',
-              status: result.data.sourcesUsed ? 'SEC 데이터 기반' : '데이터 없음'
-            });
-          }
-        } else if (agentName === 'Alice') {
-          console.log('\n[Alice] ▶ 시작: 전략 컨설팅');
-          console.log('[Alice] 질문:', message);
-
-          result = await warRoom.executeTask(
-            'Alice',
-            'consult',
-            {
-              query: message,
-              useHistory: false,
-            },
-            context
-          );
-
-          console.log('[Alice] ✓ 완료:', result.success ? '성공' : '실패');
-
-          content = result.success ? (result.data.response || '응답이 없어') : `❌ ${result.error}`;
-
-          if (result.success) {
-            responses.push({
-              agent: 'Alice',
-              content,
-              emoji: '💡',
-              status: '전략 분석 완료'
-            });
-          }
+        } catch (error) {
+          console.error('Stream error:', error);
+          sendEvent('error', { message: error instanceof Error ? error.message : 'Unknown error' });
+          controller.close();
         }
-      } catch (agentError) {
-        console.error(`[${agentName}] Error:`, agentError);
-        // 한 에이전트 실패해도 다른 에이전트는 계속 진행
       }
-    }
+    });
 
-    // 모든 에이전트가 실패했으면 에러
-    if (responses.length === 0) {
-      throw new Error('모든 에이전트가 응답에 실패했어');
-    }
-
-    return NextResponse.json({
-      responses,
-      selectedAgents
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
     });
   } catch (error) {
-    console.error('[API Error]', error);
+    console.error('API error:', error);
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : '알 수 없는 에러가 발생했어',
-      },
+      { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }

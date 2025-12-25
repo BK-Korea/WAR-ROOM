@@ -510,7 +510,14 @@ Provide comprehensive financial health assessment:
    * Auto-downloads SEC filings if not available in DB
    */
   private async answerQuestion(params: any, context: AgentContext): Promise<TaskResult> {
-    const { ticker, cik, question, filingType } = params;
+    const { ticker, cik, question, filingType, onProgress } = params;
+
+    // Progress callback helper
+    const progress = (message: string) => {
+      if (onProgress && typeof onProgress === 'function') {
+        onProgress(message);
+      }
+    };
 
     console.log('\n┌─────────────────────────────────────────');
     console.log('│ [Dorothy] answer_question 시작');
@@ -525,6 +532,7 @@ Provide comprehensive financial health assessment:
       let companyName = '';
 
       if (!companyTicker && !companyCIK) {
+        progress('회사명 추출 중...');
         console.log('\n[Dorothy] 1️⃣  회사명 추출 중...');
         console.log('[Dorothy] - LLM을 사용하여 질문에서 회사 정보 추출');
 
@@ -560,6 +568,7 @@ Provide comprehensive financial health assessment:
       console.log(`[Dorothy] - 검색어: ${searchTerm}`);
 
       // Get relevant filings
+      progress('DB에서 SEC filing 검색 중...');
       console.log(`\n[Dorothy] 2️⃣  DB에서 SEC filing 검색 중...`);
       console.log(`[Dorothy] - 검색 키: ${companyTicker || companyCIK}`);
       console.log(`[Dorothy] - Filing 타입: ${filingType || '10-K + 10-Q'}`);
@@ -582,6 +591,7 @@ Provide comprehensive financial health assessment:
 
       // Auto-download SEC data if not available
       if (filings.length === 0) {
+        progress('SEC Edgar에서 filing 다운로드 중...');
         console.log(`\n[Dorothy] 3️⃣  SEC Edgar에서 자동 다운로드 시작...`);
         console.log(`[Dorothy] - 대상: ${companyTicker || companyCIK}`);
         console.log(`[Dorothy] - Filing 타입: ${filingType || 'all (10-K, 10-Q)'}`);
@@ -628,6 +638,7 @@ Provide comprehensive financial health assessment:
         });
       }
 
+      progress(`${filings[0].company_name} 재무 데이터 분석 중...`);
       console.log(`\n[Dorothy] 5️⃣  LLM 분석 시작...`);
       console.log(`[Dorothy] - 회사: ${filings[0].company_name}`);
       console.log(`[Dorothy] - 사용할 filing 수: ${filings.length}`);
