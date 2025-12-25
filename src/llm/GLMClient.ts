@@ -92,6 +92,169 @@ export class GLMClient {
 
   private generateMockResponse(messages: GLMMessage[]): string {
     const lastMessage = messages[messages.length - 1].content.toLowerCase();
+    const systemMessage = messages.find(m => m.role === 'system')?.content || '';
+    const isDorothy = systemMessage.includes('Dorothy') || systemMessage.includes('CFA') || systemMessage.includes('SEC');
+
+    // Dorothy quarterly/periodic financial analysis (Korean)
+    if (isDorothy && (lastMessage.includes('분기') || lastMessage.includes('quarterly') || lastMessage.includes('q3') || lastMessage.includes('revenue') && lastMessage.includes('expenses'))) {
+      return `## Vertical Aerospace Ltd. (EVTL) 분기별 재무 분석
+### Q3 2024 vs Q3 2023 비교
+
+**분석 기간**: 2024년 9월 30일 마감 분기 vs 2023년 9월 30일 마감 분기
+**출처**: Form 10-Q filed 2024년 11월 12일
+
+---
+
+## 1. 매출(Revenue) 변화와 원인
+
+### 총 매출 실적
+
+- **Q3 2024**: $1,200K (출처: Form 10-Q, Page 4, Consolidated Statements of Operations)
+- **Q3 2023**: $2,100K (출처: Form 10-Q, Page 4, Consolidated Statements of Operations)
+- **증감**: -$900K (-42.9%)
+
+### 매출 감소 원인 (출처: Page 24, MD&A)
+
+1. **엔지니어링 서비스 매출 감소**: -$700K
+   - 제3자 고객 대상 엔지니어링 용역 중단
+
+2. **사전 납품 계약금 감소**: -$200K
+   - 잠재 고객의 pre-delivery payment 감소
+
+### 매출 특성 평가
+
+회사는 현재 **pre-commercialization 단계**로 VX4 인증에 집중하고 있어 매출 발생이 극히 제한적입니다.
+(출처: Page 24, MD&A)
+
+---
+
+## 2. 사용비용 (Operating Expenses) 중요도 순 분석
+
+### 총 사용비용 개요
+
+- **Q3 2024**: $51,300K (출처: Page 4)
+- **Q3 2023**: $57,000K (출처: Page 4)
+- **증감**: -$5,700K (-10.0%)
+
+---
+
+## 2-1. R&D 비용 (Research & Development)
+
+**총 R&D 비용**:
+- **Q3 2024**: $38,500K (출처: Page 4, Consolidated Statements of Operations)
+- **Q3 2023**: $42,800K (출처: Page 4, Consolidated Statements of Operations)
+- **증감**: -$4,300K (-10.0%)
+
+### R&D 세부 항목 (중요도 순)
+
+#### **Priority 1: Flight Testing and Certification** (최우선 과제)
+- **Q3 2024**: $22,800K (R&D의 59.2%) (출처: Page 25, Table 1)
+- **Q3 2023**: $25,600K (R&D의 59.8%) (출처: Page 25, Table 1)
+- **증감**: -$2,800K (-10.9%)
+- **원인**: 공급업체 문제로 인한 시험비행 일정 지연 (출처: Page 25, Table 1)
+
+#### **Priority 2: Prototype Manufacturing and Tooling**
+- **Q3 2024**: $8,400K (R&D의 21.8%) (출처: Page 25, Table 1)
+- **Q3 2023**: $9,200K (R&D의 21.5%) (출처: Page 25, Table 1)
+- **증감**: -$800K (-8.7%)
+- **원인**: 제조 효율성 개선 (출처: Page 25, Table 1)
+
+#### **Priority 3: Engineering Personnel Costs**
+- **Q3 2024**: $5,100K (R&D의 13.2%) (출처: Page 26, Line 8)
+- **Q3 2023**: $5,800K (R&D의 13.5%) (출처: Page 26, Line 8)
+- **증감**: -$700K (-12.1%)
+- **원인**: 2024년 8월 15% 인력 감축 단행 (출처: Page 26, Line 8)
+
+#### **Priority 4: Regulatory and Certification Expenses**
+- **Q3 2024**: $2,200K (R&D의 5.7%) (출처: Page 26, Line 12)
+- **Q3 2023**: $2,200K (R&D의 5.1%) (출처: Page 26, Line 12)
+- **증감**: $0K (0%)
+- **원인**: 인증 일정이 일관되게 유지됨 (출처: Page 26, Line 12)
+
+---
+
+## 2-2. G&A 비용 (General & Administrative)
+
+**총 G&A 비용**:
+- **Q3 2024**: $12,800K (출처: Page 4, Consolidated Statements of Operations)
+- **Q3 2023**: $14,200K (출처: Page 4, Consolidated Statements of Operations)
+- **증감**: -$1,400K (-9.9%)
+
+### G&A 세부 항목 (중요도 순)
+
+#### **Priority 1: Professional Fees** (법률, 회계, 컨설팅)
+- **Q3 2024**: $4,800K (G&A의 37.5%) (출처: Page 27, Table 2)
+- **Q3 2023**: $5,200K (G&A의 36.6%) (출처: Page 27, Table 2)
+- **증감**: -$400K (-7.7%)
+- **원인**: 구조조정 후 자문료 감소 (출처: Page 27, Table 2)
+
+#### **Priority 2: Administrative Personnel Costs**
+- **Q3 2024**: $3,600K (G&A의 28.1%) (출처: Page 27, Table 2)
+- **Q3 2023**: $4,100K (G&A의 28.9%) (출처: Page 27, Table 2)
+- **증감**: -$500K (-12.2%)
+- **원인**: 인력 감축 및 채용 동결 (출처: Page 27, Table 2)
+
+#### **Priority 3: Facilities and Rent**
+- **Q3 2024**: $2,400K (G&A의 18.8%) (출처: Page 28, Line 3)
+- **Q3 2023**: $2,500K (G&A의 17.6%) (출처: Page 28, Line 3)
+- **증감**: -$100K (-4.0%)
+- **원인**: 미사용 사무 공간 전대 (출처: Page 28, Line 3)
+
+#### **Priority 4: IT and Software Subscriptions**
+- **Q3 2024**: $1,200K (G&A의 9.4%) (출처: Page 28, Line 7)
+- **Q3 2023**: $1,400K (G&A의 9.9%) (출처: Page 28, Line 7)
+- **증감**: -$200K (-14.3%)
+- **원인**: 비필수 소프트웨어 라이선스 해지 (출처: Page 28, Line 7)
+
+#### **Priority 5: Other Administrative Expenses**
+- **Q3 2024**: $800K (G&A의 6.3%) (출처: Page 28, Line 11)
+- **Q3 2023**: $1,000K (G&A의 7.0%) (출처: Page 28, Line 11)
+- **증감**: -$200K (-20.0%)
+- **원인**: 출장 제한 및 마케팅 축소 (출처: Page 28, Line 11)
+
+---
+
+## 3. 전체 재무 상태 평가
+
+### 영업 손실 (Loss from Operations)
+- **Q3 2024**: -$50,100K (출처: Page 4)
+- **Q3 2023**: -$54,900K (출처: Page 4)
+- **개선**: $4,800K (8.7% 감소)
+
+### 순손실 (Net Loss)
+- **Q3 2024**: -$51,300K (출처: Page 4)
+- **Q3 2023**: -$55,800K (출처: Page 4)
+- **개선**: $4,500K (8.1% 감소)
+
+### 분기별 현금소진 추이 (9M 2024 데이터 기반)
+- **Q1 2024**: ~$51,200K (추정치, 출처: Page 4 9M 데이터에서 역산)
+- **Q2 2024**: ~$51,200K (추정치, 출처: Page 4 9M 데이터에서 역산)
+- **Q3 2024**: $51,300K (실제, 출처: Page 4)
+- **평균 분기 손실**: $51,200K
+- **Burn Rate 안정성**: 매우 일관적
+
+---
+
+## 핵심 인사이트 (Key Insights)
+
+### ✅ 긍정적 요소
+
+1. **비용 절감 성공**: 인플레이션 환경에서도 YoY 운영비용 10% 감소 (출처: Page 4)
+2. **R&D 우선순위 유지**: flight testing이 예산 감축에도 최우선순위 유지 (출처: Page 25)
+3. **G&A 효율화**: 모든 G&A 항목에서 비용 절감 달성 (출처: Page 27-28)
+4. **일관된 burn rate**: 분기별 손실이 ~$51M로 안정적이어서 예측 가능 (출처: Page 4)
+
+### ⚠️ 우려 요소
+
+1. **매출 급감**: 42.9% YoY 감소, pre-commercial 단계의 한계 (출처: Page 4, Page 24)
+2. **높은 분기 손실**: 분기당 $51M 손실은 여전히 매우 높음 (출처: Page 4)
+3. **현금 고갈 리스크**: 3개월 런웨이 (별도 going concern 분석 참조)
+
+---
+
+**본 분석은 전적으로 Form 10-Q (Filed: 2024년 11월 12일)에 공시된 데이터만을 사용했습니다.**
+**모든 수치는 명시된 페이지와 섹션에서 직접 인용했습니다.**`;
+    }
 
     // Dorothy going concern analysis (Korean)
     if (lastMessage.includes('going concern') || lastMessage.includes('계속기업') || lastMessage.includes('goingconcern')) {
