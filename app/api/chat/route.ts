@@ -66,6 +66,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    console.log('\n═══════════════════════════════════════════════════');
+    console.log(`[WAR-ROOM] 새 질문 받음: "${message}"`);
+    console.log('═══════════════════════════════════════════════════\n');
+
     const warRoom = await getWarRoom();
     const context: AgentContext = {
       projectId: 1, // Default project
@@ -73,9 +77,9 @@ export async function POST(req: NextRequest) {
 
     // 질문 분석해서 적합한 에이전트 선택
     const selectedAgents = selectAgents(message);
-    console.log(`[Auto-Select] Question: "${message.substring(0, 50)}..." → Agents: ${selectedAgents.join(', ')}`);
+    console.log(`[Auto-Select] 선택된 에이전트: ${selectedAgents.join(', ')}`);
 
-    const responses: Array<{ agent: string; content: string; emoji: string }> = [];
+    const responses: Array<{ agent: string; content: string; emoji: string; status?: string }> = [];
 
     // 선택된 에이전트들이 순차적으로 응답
     for (const agentName of selectedAgents) {
@@ -84,6 +88,9 @@ export async function POST(req: NextRequest) {
         let content: string;
 
         if (agentName === 'Dorothy') {
+          console.log('\n[Dorothy] ▶ 시작: SEC 데이터 기반 재무 분석');
+          console.log('[Dorothy] 질문:', message);
+
           // Use answer_question which auto-downloads SEC data if needed
           result = await warRoom.executeTask(
             'Dorothy',
@@ -94,16 +101,28 @@ export async function POST(req: NextRequest) {
             },
             context
           );
+
+          console.log('[Dorothy] ✓ 완료:', result.success ? '성공' : '실패');
+          if (!result.success) {
+            console.log('[Dorothy] ✗ 에러:', result.error);
+          } else {
+            console.log('[Dorothy] ✓ 사용된 filing:', result.data.sourcesUsed?.map((s: any) => `${s.type} (${s.date})`).join(', ') || 'N/A');
+          }
+
           content = result.success ? (result.data.answer || '분석 결과가 없어') : `❌ ${result.error}`;
 
           if (result.success) {
             responses.push({
               agent: 'Dorothy',
               content,
-              emoji: '💼'
+              emoji: '💼',
+              status: result.data.sourcesUsed ? 'SEC 데이터 기반' : '데이터 없음'
             });
           }
         } else if (agentName === 'Alice') {
+          console.log('\n[Alice] ▶ 시작: 전략 컨설팅');
+          console.log('[Alice] 질문:', message);
+
           result = await warRoom.executeTask(
             'Alice',
             'consult',
@@ -113,13 +132,17 @@ export async function POST(req: NextRequest) {
             },
             context
           );
+
+          console.log('[Alice] ✓ 완료:', result.success ? '성공' : '실패');
+
           content = result.success ? (result.data.response || '응답이 없어') : `❌ ${result.error}`;
 
           if (result.success) {
             responses.push({
               agent: 'Alice',
               content,
-              emoji: '💡'
+              emoji: '💡',
+              status: '전략 분석 완료'
             });
           }
         }

@@ -484,20 +484,39 @@ Provide comprehensive financial health assessment:
   private async answerQuestion(params: any, context: AgentContext): Promise<TaskResult> {
     const { ticker, cik, question, filingType } = params;
 
+    console.log('\n┌─────────────────────────────────────────');
+    console.log('│ [Dorothy] answer_question 시작');
+    console.log('│ 질문:', question);
+    console.log('└─────────────────────────────────────────');
+
     try {
       // Extract company info from question if not provided
       let companyTicker = ticker;
       let companyCIK = cik;
 
       if (!companyTicker && !companyCIK) {
+        console.log('\n[Dorothy] 1️⃣  회사명 추출 중...');
+        console.log('[Dorothy] - LLM을 사용하여 질문에서 회사 정보 추출');
+
         const extractedInfo = await this.extractCompanyFromQuestion(question);
         if (extractedInfo) {
           companyTicker = extractedInfo.ticker;
           companyCIK = extractedInfo.cik;
+          console.log(`[Dorothy] ✓ 추출 완료:`);
+          console.log(`[Dorothy]   - 회사명: ${extractedInfo.companyName || 'N/A'}`);
+          console.log(`[Dorothy]   - Ticker: ${companyTicker || 'N/A'}`);
+          console.log(`[Dorothy]   - CIK: ${companyCIK || 'N/A'}`);
+        } else {
+          console.log('[Dorothy] ✗ 회사 정보 추출 실패');
         }
+      } else {
+        console.log(`\n[Dorothy] 1️⃣  회사 정보 (파라미터로 제공됨):`);
+        console.log(`[Dorothy]   - Ticker: ${companyTicker || 'N/A'}`);
+        console.log(`[Dorothy]   - CIK: ${companyCIK || 'N/A'}`);
       }
 
       if (!companyTicker && !companyCIK) {
+        console.log('[Dorothy] ❌ 회사 식별 실패 - 종료');
         return {
           success: false,
           error: '질문에서 회사명이나 티커를 찾을 수 없어. 회사명을 명확하게 알려줘.'
@@ -505,20 +524,32 @@ Provide comprehensive financial health assessment:
       }
 
       // Get relevant filings
+      console.log(`\n[Dorothy] 2️⃣  DB에서 SEC filing 검색 중...`);
+      console.log(`[Dorothy] - 검색 키: ${companyTicker || companyCIK}`);
+      console.log(`[Dorothy] - Filing 타입: ${filingType || '10-K + 10-Q'}`);
+
       let filings;
       if (filingType) {
         const filing = await this.getLatestFiling(companyTicker, companyCIK, filingType);
         filings = filing ? [filing] : [];
+        console.log(`[Dorothy] - ${filingType}: ${filing ? '발견 ✓' : '없음 ✗'}`);
       } else {
         // Get both 10-K and 10-Q
         const annual = await this.getLatestFiling(companyTicker, companyCIK, '10-K');
         const quarterly = await this.getLatestFiling(companyTicker, companyCIK, '10-Q');
         filings = [annual, quarterly].filter(Boolean);
+        console.log(`[Dorothy] - 10-K filing: ${annual ? '발견 ✓' : '없음 ✗'}`);
+        console.log(`[Dorothy] - 10-Q filing: ${quarterly ? '발견 ✓' : '없음 ✗'}`);
       }
+
+      console.log(`[Dorothy] ✓ DB 검색 결과: ${filings.length}개 filing 발견`);
 
       // Auto-download SEC data if not available
       if (filings.length === 0) {
-        console.log(`[Dorothy] No SEC data found. Auto-downloading for ${companyTicker || companyCIK}...`);
+        console.log(`\n[Dorothy] 3️⃣  SEC Edgar에서 자동 다운로드 시작...`);
+        console.log(`[Dorothy] - 대상: ${companyTicker || companyCIK}`);
+        console.log(`[Dorothy] - Filing 타입: ${filingType || 'all (10-K, 10-Q)'}`);
+        console.log(`[Dorothy] - 다운로드 limit: 3`);
 
         const fetchResult = await this.fetchSECData(
           {
@@ -531,31 +562,53 @@ Provide comprehensive financial health assessment:
         );
 
         if (!fetchResult.success) {
+          console.log(`[Dorothy] ✗ SEC 다운로드 실패: ${fetchResult.error}`);
           return {
             success: false,
             error: `SEC 자료를 찾을 수 없어: ${fetchResult.error}`
           };
         }
 
+        console.log(`[Dorothy] ✓ SEC 다운로드 완료: ${fetchResult.data.filingsDownloaded}개 filing`);
+        console.log(`[Dorothy] - 다운로드한 회사: ${fetchResult.data.company.name}`);
+        console.log(`[Dorothy] - CIK: ${fetchResult.data.company.cik}`);
+
         // Retry getting filings after download
+        console.log(`\n[Dorothy] 4️⃣  다운로드 후 DB 재검색...`);
+
         if (filingType) {
           const filing = await this.getLatestFiling(companyTicker, companyCIK, filingType);
           filings = filing ? [filing] : [];
+          console.log(`[Dorothy] - ${filingType}: ${filing ? '발견 ✓' : '없음 ✗'}`);
         } else {
           const annual = await this.getLatestFiling(companyTicker, companyCIK, '10-K');
           const quarterly = await this.getLatestFiling(companyTicker, companyCIK, '10-Q');
           filings = [annual, quarterly].filter(Boolean);
+          console.log(`[Dorothy] - 10-K: ${annual ? '발견 ✓' : '없음 ✗'}`);
+          console.log(`[Dorothy] - 10-Q: ${quarterly ? '발견 ✓' : '없음 ✗'}`);
         }
 
         if (filings.length === 0) {
+          console.log('[Dorothy] ❌ DB에 여전히 데이터 없음 - 치명적 오류');
           return {
             success: false,
             error: `SEC 자료를 다운로드했는데 DB에서 찾을 수 없어. 데이터베이스 연결을 확인해봐.`
           };
         }
 
-        console.log(`[Dorothy] ✅ Auto-downloaded ${fetchResult.data.filingsDownloaded} SEC filings`);
+        console.log(`[Dorothy] ✓ DB 재검색 성공: ${filings.length}개 filing 사용 가능`);
       }
+
+      console.log(`\n[Dorothy] 5️⃣  LLM 분석 시작...`);
+      console.log(`[Dorothy] - 회사: ${filings[0].company_name}`);
+      console.log(`[Dorothy] - 사용할 filing 수: ${filings.length}`);
+
+      filings.forEach((f: any, idx: number) => {
+        console.log(`[Dorothy]   ${idx + 1}. ${f.filing_type} (${f.filing_date})`);
+        console.log(`[Dorothy]      - Accession: ${f.accession_number}`);
+        console.log(`[Dorothy]      - Markdown: ${f.markdown_content ? 'Yes ✓' : 'No, using raw_content'}`);
+        console.log(`[Dorothy]      - Content length: ${(f.markdown_content || f.raw_content)?.length || 0} chars`);
+      });
 
       const answerPrompt = `QUESTION: ${question}
 
@@ -573,7 +626,14 @@ ${this.truncateContent(f.markdown_content || f.raw_content, 10000)}
 Answer the question using ONLY the SEC filing data provided above.
 If the answer is not in the filings, explicitly state "이 정보는 SEC filing에 없어, Master."`;
 
+      console.log(`[Dorothy] - Prompt 길이: ${answerPrompt.length} chars`);
+      console.log(`[Dorothy] - LLM 호출 중... (temperature: 0.3)`);
+
       const answer = await this.callLLM(answerPrompt, 0.3);
+
+      console.log(`[Dorothy] ✓ LLM 분석 완료`);
+      console.log(`[Dorothy] - 응답 길이: ${answer.length} chars`);
+      console.log(`[Dorothy] - Sources: ${filings.map((f: any) => `${f.filing_type} (${f.filing_date})`).join(', ')}`);
 
       return {
         success: true,
@@ -589,6 +649,10 @@ If the answer is not in the filings, explicitly state "이 정보는 SEC filing�
         }
       };
     } catch (error: any) {
+      console.error('\n[Dorothy] ❌ FATAL ERROR in answerQuestion:');
+      console.error('[Dorothy] Error message:', error.message);
+      console.error('[Dorothy] Stack trace:', error.stack);
+
       return {
         success: false,
         error: `Question answering failed: ${error.message}`
