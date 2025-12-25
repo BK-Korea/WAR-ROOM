@@ -180,6 +180,12 @@ export default function ChatPage() {
         timestamp: Date.now(),
       }));
 
+      console.log('[Frontend] 💬 Assistant messages created:', assistantMessages.map(m => ({
+        agent: m.agent,
+        contentLength: m.content?.length || 0,
+        hasContent: !!m.content
+      })));
+
       setStorage((prev) => ({
         ...prev,
         conversations: prev.conversations.map((c) =>

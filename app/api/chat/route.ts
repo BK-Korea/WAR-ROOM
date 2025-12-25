@@ -139,7 +139,8 @@ export async function POST(req: NextRequest) {
                   console.log('[Dorothy] ✅ Response added to array:', {
                     contentLength: content.length,
                     hasContent: !!content,
-                    totalResponses: responses.length
+                    totalResponses: responses.length,
+                    contentPreview: content.substring(0, 100) + '...'
                   });
                 }
               } else if (agentName === 'Alice') {
