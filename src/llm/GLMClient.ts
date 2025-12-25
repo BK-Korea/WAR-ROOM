@@ -847,11 +847,11 @@ Beta Technologies는 **eVTOL 업계에서 가장 유리한 전략적 포지션**
 **본 분석은 전적으로 SEC filing 데이터에 기반합니다. 외부 시장 데이터나 예측은 사용하지 않았습니다.**`;
     }
 
-    // Financial metrics extraction
-    if (lastMessage.includes('financial metrics') || lastMessage.includes('extract')) {
-      return `## KEY FINANCIAL METRICS EXTRACTION
+    // Financial metrics extraction (Korean)
+    if (lastMessage.includes('financial metrics') || lastMessage.includes('extract') || lastMessage.includes('재무지표')) {
+      return `## 주요 재무지표 추출
 
-SOURCE: Form 10-Q filed November 12, 2024
+출처: Form 10-Q filed 2024년 11월 12일
 
 ### 1. Cash and Cash Equivalents
 
