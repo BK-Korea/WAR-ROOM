@@ -73,21 +73,59 @@ export class GLMClient {
       return this.generateMockResponse(params.messages);
     }
 
-    try {
-      const response = await this.client.post<GLMResponse>('/chat/completions', {
-        model: params.model || this.defaultModel,
-        messages: params.messages,
-        temperature: params.temperature ?? 0.7,
-        top_p: params.top_p ?? 0.9,
-        max_tokens: params.max_tokens ?? 2000,
-        stream: false
-      });
+    const maxRetries = 3;
+    let lastError: any;
 
-      return response.data.choices[0].message.content;
-    } catch (error: any) {
-      console.error('GLM API Error:', error.response?.data || error.message);
-      throw new Error(`GLM API call failed: ${error.message}`);
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await this.client.post<GLMResponse>('/chat/completions', {
+          model: params.model || this.defaultModel,
+          messages: params.messages,
+          temperature: params.temperature ?? 0.7,
+          top_p: params.top_p ?? 0.9,
+          max_tokens: params.max_tokens ?? 2000,
+          stream: false
+        });
+
+        return response.data.choices[0].message.content;
+      } catch (error: any) {
+        lastError = error;
+        const status = error.response?.status;
+
+        // 429: Rate Limit - 재시도
+        if (status === 429) {
+          const retryAfter = error.response?.headers['retry-after'];
+          const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : Math.pow(2, attempt) * 1000;
+
+          console.warn(`⚠️  Rate limit hit (attempt ${attempt}/${maxRetries}). Waiting ${waitTime/1000}s...`);
+
+          if (attempt < maxRetries) {
+            await this.sleep(waitTime);
+            continue;
+          }
+        }
+
+        // 다른 에러는 즉시 throw
+        console.error('GLM API Error:', error.response?.data || error.message);
+        break;
+      }
     }
+
+    // 모든 재시도 실패
+    const status = lastError?.response?.status;
+    if (status === 429) {
+      throw new Error('API 요청 한도를 초과했어. 잠시 후 다시 시도해줘 (Rate Limit)');
+    } else if (status === 401) {
+      throw new Error('API 키가 유효하지 않아. 환경 변수를 확인해줘');
+    } else if (status === 403) {
+      throw new Error('API 접근 권한이 없어. API 키 설정을 확인해줘');
+    } else {
+      throw new Error(`GLM API 호출 실패: ${lastError.message}`);
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   private generateMockResponse(messages: GLMMessage[]): string {
