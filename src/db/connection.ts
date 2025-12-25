@@ -38,11 +38,11 @@ export async function query<T = any>(text: string, params?: any[]): Promise<{ ro
 
     const start = Date.now();
     try {
-      const res = await postgresPool.query<T>(text, params);
+      const res = await postgresPool.query(text, params);
       const duration = Date.now() - start;
       console.log('Executed query', { text, duration, rows: res.rowCount });
       return {
-        rows: res.rows,
+        rows: res.rows as T[],
         rowCount: res.rowCount || 0
       };
     } catch (error) {
@@ -54,6 +54,14 @@ export async function query<T = any>(text: string, params?: any[]): Promise<{ ro
 
 // PostgreSQL pool (lazy initialization)
 let postgresPool: any = null;
+
+// Type for pg Pool (to avoid direct dependency)
+type PoolClient = {
+  query: <T = any>(text: string, params?: any[]) => Promise<{ rows: T[]; rowCount: number }>;
+  end: () => Promise<void>;
+  on: (event: string, listener: (err: Error) => void) => void;
+  connect: () => Promise<any>;
+};
 
 export async function getClient(): Promise<any> {
   if (DB_TYPE === 'postgresql') {
