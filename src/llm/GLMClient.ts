@@ -93,100 +93,100 @@ export class GLMClient {
   private generateMockResponse(messages: GLMMessage[]): string {
     const lastMessage = messages[messages.length - 1].content.toLowerCase();
 
-    // Dorothy going concern analysis
-    if (lastMessage.includes('going concern')) {
-      return `## GOING CONCERN ANALYSIS
+    // Dorothy going concern analysis (Korean)
+    if (lastMessage.includes('going concern') || lastMessage.includes('계속기업') || lastMessage.includes('goingconcern')) {
+      return `## 계속기업 이슈 분석 (GOING CONCERN ANALYSIS)
 
-ANSWER: Yes, Vertical Aerospace faces substantial going concern issues.
+답변: 네, Vertical Aerospace는 심각한 계속기업 이슈에 직면해 있습니다.
 
-SOURCE: Form 10-Q filed November 12, 2024 (Quarter ended September 30, 2024)
+출처: Form 10-Q filed 2024년 11월 12일 (2024년 9월 30일 마감 분기)
 
-### 1. Auditor's Going Concern Qualification
-**YES - Explicit auditor qualification present**
+### 1. 감사인의 계속기업 적격의견 여부
+**예 - 명시적인 감사인 적격의견 존재**
 
-DATA EXCERPT:
-"The Company's financial statements have been prepared assuming that the Company will continue as a going concern... These conditions raise substantial doubt about the Company's ability to continue as a going concern. Management's plans in regard to these matters are also described in Note 1."
+데이터 인용:
+"회사의 재무제표는 계속기업을 가정하여 작성되었습니다... 이러한 상황은 회사의 계속기업 능력에 대한 실질적 의문을 제기합니다. 이에 대한 경영진의 계획은 Note 1에 기술되어 있습니다."
 
-### 2. Specific Liquidity Concerns
+### 2. 구체적인 유동성 우려사항
 
-CASH POSITION:
-- Cash and cash equivalents: **$45.2 million** (September 30, 2024)
-- vs. $128.5 million (December 31, 2023)
-- **Decline of $83.3 million in 9 months**
+현금 포지션:
+- 현금및현금성자산: **$45.2 million** (2024년 9월 30일)
+- vs. $128.5 million (2023년 12월 31일)
+- **9개월간 $83.3 million 감소**
 
-SOURCE: Consolidated Balance Sheets, page 1
+출처: Consolidated Balance Sheets, 1페이지
 
-### 3. Monthly Cash Burn Rate
-**$15-18 million per month**
+### 3. 월간 현금소진율
+**월 $15-18 million**
 
-DATA EXCERPT:
-"Based on the Company's current operating plan and expected cash burn rate of approximately $15-18 million per month..."
+데이터 인용:
+"회사의 현재 운영 계획과 월 약 $15-18 million의 예상 현금소진율을 기준으로..."
 
-SOURCE: Note 1 - Basis of Presentation and Going Concern
+출처: Note 1 - Basis of Presentation and Going Concern
 
-### 4. Projected Runway
-**Approximately 3 months (into Q1 2025)**
+### 4. 예상 런웨이 (자금 고갈 시점)
+**약 3개월 (2025년 1분기까지)**
 
-DATA EXCERPT:
-"management estimates that existing cash and cash equivalents will be sufficient to fund operations into Q1 2025"
+데이터 인용:
+"경영진은 기존 현금및현금성자산이 2025년 1분기까지 운영 자금으로 충분할 것으로 추정합니다"
 
-SOURCE: Note 1 - Basis of Presentation and Going Concern
+출처: Note 1 - Basis of Presentation and Going Concern
 
-### 5. Operating Cash Flow (9M 2024)
-**Negative $114.2 million**
+### 5. 영업현금흐름 (9M 2024)
+**마이너스 $114.2 million**
 
-DATA EXCERPT:
-"For the nine months ended September 30, 2024, the Company... used $114.2 million of cash in operating activities"
+데이터 인용:
+"2024년 9월 30일 마감 9개월 동안, 회사는... 영업활동에서 $114.2 million의 현금을 사용했습니다"
 
-SOURCE: Consolidated Statements of Cash Flows
+출처: Consolidated Statements of Cash Flows
 
-### 6. Company's Plans to Address Going Concern
+### 6. 계속기업 문제 해결을 위한 회사의 계획
 
-Management has disclosed 5 key initiatives:
+경영진이 공시한 5가지 주요 이니셔티브:
 
-1. **Equity Financing**: Raising additional capital through public or private offerings
-2. **Strategic Partnerships**: Securing strategic partnerships or collaborations
-3. **Non-Dilutive Funding**: Pursuing government grants
-4. **Cost Reduction**: Reducing operating expenses (15% workforce reduction completed August 2024, saving $8M annually)
-5. **Asset Monetization**: Exploring asset sales or licensing arrangements
+1. **지분 조달**: 공모 또는 사모를 통한 추가 자본 조달
+2. **전략적 파트너십**: 전략적 파트너십 또는 협력 확보
+3. **비희석성 자금조달**: 정부 보조금 등 추구
+4. **비용 절감**: 운영비용 절감 (2024년 8월 15% 인력 감축 완료, 연간 $8M 절감)
+5. **자산 유동화**: 자산 매각 또는 라이선싱 방안 검토
 
-DATA EXCERPT:
-"Management's plans to address going concern include: 1. Raising additional capital through public or private equity offerings 2. Securing strategic partnerships..."
+데이터 인용:
+"계속기업 문제 해결을 위한 경영진의 계획은 다음을 포함합니다: 1. 공모 또는 사모를 통한 추가 자본 조달 2. 전략적 파트너십 확보..."
 
-**CRITICAL CAVEAT**: "However, there is no assurance that these plans will be successfully implemented."
+**중요 면책조항**: "그러나 이러한 계획들이 성공적으로 실행될 것이라는 보장은 없습니다."
 
-### 7. Covenant Violations or Defaults
+### 7. 약정(Covenant) 위반 또는 채무불이행
 
-**CURRENT STATUS**: In compliance
-**FUTURE RISK**: High probability of violation
+**현재 상태**: 준수 중
+**향후 리스크**: 위반 가능성 높음
 
-DEBT OUTSTANDING:
-- Total debt: **$60.0 million**
-  - Term loan: $45.0 million (due December 2025)
-  - Convertible notes: $15.0 million (due June 2025)
+부채 잔액:
+- 총 부채: **$60.0 million**
+  - 장기차입금: $45.0 million (만기 2025년 12월)
+  - 전환사채: $15.0 million (만기 2025년 6월)
 
-COVENANT REQUIREMENT:
-- Minimum liquidity: **$20.0 million**
+약정 요구사항:
+- 최소 유동성: **$20.0 million**
 
-DATA EXCERPT:
-"As of September 30, 2024, the Company was in compliance with all debt covenants. However, based on current cash burn projections, the Company may violate the minimum liquidity covenant in Q1 2025 without additional financing."
+데이터 인용:
+"2024년 9월 30일 기준, 회사는 모든 부채 약정을 준수하고 있습니다. 그러나 현재 현금소진 예측에 따르면, 추가 자금조달 없이는 2025년 1분기에 최소 유동성 약정을 위반할 수 있습니다."
 
-SOURCE: Note 8 - Debt
+출처: Note 8 - Debt
 
-### SUBSEQUENT EVENTS
-In October 2024, the Company entered into a **non-binding term sheet** for a potential **$40 million investment**, subject to due diligence. **No assurance of completion.**
+### 후속 사건 (SUBSEQUENT EVENTS)
+2024년 10월, 회사는 잠재적 **$40 million 투자**에 대한 **비구속적 term sheet**를 체결했으나, 실사가 필요하며 **완료 보장 없음**.
 
-## PROFESSIONAL ASSESSMENT
+## 전문가 평가
 
-**SEVERITY**: **CRITICAL**
+**심각도**: **매우 위험 (CRITICAL)**
 
-The going concern risk is immediate and material:
-- 3-month runway is extremely short
-- Covenant violation risk in Q1 2025 could trigger debt acceleration ($60M)
-- No binding financing commitments
-- Historical difficulty in raising capital (eVTOL sector challenges)
+계속기업 리스크는 즉각적이고 중대합니다:
+- 3개월 런웨이는 극도로 짧음
+- 2025년 1분기 약정 위반 리스크로 $60M 부채 조기상환 가능
+- 확정된 자금조달 약속 없음
+- eVTOL 섹터의 자금조달 어려움 (역사적 트랙레코드)
 
-**This analysis is based solely on SEC filing data. No external market data or projections were used.**`;
+**본 분석은 전적으로 SEC filing 데이터에 기반합니다. 외부 시장 데이터나 예측은 사용하지 않았습니다.**`;
     }
 
     // Financial metrics extraction
