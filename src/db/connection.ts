@@ -12,7 +12,7 @@ const DB_TYPE = process.env.DATABASE_TYPE || 'sqlite'; // 'postgresql' or 'sqlit
 export async function query<T = any>(text: string, params?: any[]): Promise<{ rows: T[]; rowCount: number }> {
   if (DB_TYPE === 'sqlite') {
     // SQLite 사용
-    const { query: sqliteQuery } = await import('./sqlite.js');
+    const { query: sqliteQuery } = await import('./sqlite');
     return sqliteQuery(text, params) as Promise<{ rows: T[]; rowCount: number }>;
   } else {
     // PostgreSQL 사용
@@ -71,7 +71,7 @@ export async function closePool(): Promise<void> {
     await postgresPool.end();
     console.log('✅ PostgreSQL pool closed');
   } else if (DB_TYPE === 'sqlite') {
-    const { closeSQLite } = await import('./sqlite.js');
+    const { closeSQLite } = await import('./sqlite');
     closeSQLite();
   }
 }
@@ -79,7 +79,7 @@ export async function closePool(): Promise<void> {
 // 초기화
 if (DB_TYPE === 'sqlite') {
   console.log('🗄️  Using SQLite database');
-  import('./sqlite.js').then(({ initializeSQLite }) => {
+  import('./sqlite').then(({ initializeSQLite }) => {
     initializeSQLite();
   });
 } else {
