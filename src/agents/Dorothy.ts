@@ -701,8 +701,15 @@ ${filings.map((f: any) => `
 ${this.truncateContent(f.markdown_content || f.raw_content, 10000)}
 `).join('\n\n')}
 
-Answer the question using ONLY the SEC filing data provided above.
-If the answer is not in the filings, explicitly state "이 정보는 SEC filing에 없어, Master."`;
+⚠️ CRITICAL RULES - MUST FOLLOW:
+1. Answer using ONLY the SEC filing data provided above
+2. DO NOT use general knowledge, industry averages, or past training data
+3. DO NOT make up numbers - if specific data is not in filings, say "이 정보는 SEC filing에 없어, Master"
+4. ALWAYS cite the specific filing type and date
+5. Use Korean 반말 (casual speech) and call user "Master" (not "Master님")
+6. If the question cannot be answered with the filings, respond with "답변 불가 - 이 정보는 SEC filing에 없어, Master"
+
+Answer the question now:`;
 
       console.log(`[Dorothy] - Prompt 길이: ${answerPrompt.length} chars`);
       console.log(`[Dorothy] - LLM 호출 중... (temperature: 0.3)`);
