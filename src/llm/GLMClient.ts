@@ -46,7 +46,7 @@ export class GLMClient {
   constructor() {
     this.apiKey = process.env.GLM_API_KEY || '';
     this.baseURL = process.env.GLM_API_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4';
-    this.defaultModel = 'glm-4';
+    this.defaultModel = 'glm-4-plus'; // GLM-4.7 latest model
     this.mockMode = process.env.GLM_MOCK_MODE === 'true';
 
     if (!this.apiKey && !this.mockMode) {

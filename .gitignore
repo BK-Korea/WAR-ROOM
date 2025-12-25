@@ -7,3 +7,4 @@ coverage/
 .vscode/
 .idea/
 war-room.db
+war-room.db*
