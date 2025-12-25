@@ -39,7 +39,7 @@ export class Elsa extends BaseAgent {
     // Load active guardrails into memory for quick checking
     try {
       const guardrails = await query(`
-        SELECT * FROM elsa_risk.guardrails WHERE is_active = true
+        SELECT * FROM guardrails WHERE is_active = 1
       `);
       console.log(`Loaded ${guardrails.rowCount} active guardrails`);
     } catch (error) {

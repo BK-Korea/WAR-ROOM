@@ -90,7 +90,7 @@ export abstract class BaseAgent implements Agent {
 
     try {
       await query(`
-        INSERT INTO amy_tracker.activity_timeline (project_id, agent_name, activity_type, activity_description, metadata)
+        INSERT INTO activity_timeline (project_id, agent_name, activity_type, activity_description, metadata)
         VALUES ($1, $2, $3, $4, $5)
       `, [
         context.projectId,
