@@ -25,13 +25,12 @@ interface ChatStorage {
 }
 
 const MODELS = [
-  { value: 'glm-4-plus', label: 'GLM-4 Plus (최고 성능)' },
-  { value: 'glm-4-flash', label: 'GLM-4 Flash (빠른 응답)' },
-  { value: 'glm-4-air', label: 'GLM-4 Air (경량)' },
-  { value: 'glm-4', label: 'GLM-4 (기본)' },
+  { value: 'glm-4-plus', label: 'GLM-4 Plus' },
+  { value: 'glm-4-flash', label: 'GLM-4 Flash' },
+  { value: 'glm-4-air', label: 'GLM-4 Air' },
+  { value: 'glm-4', label: 'GLM-4' },
 ];
 
-// Simple ID generator
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
 export default function ChatPage() {
@@ -42,9 +41,9 @@ export default function ChatPage() {
   });
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // localStorage 불러오기
   useEffect(() => {
     const saved = localStorage.getItem('warroom_chat');
     if (saved) {
@@ -56,12 +55,10 @@ export default function ChatPage() {
     }
   }, []);
 
-  // storage 변경될 때마다 localStorage에 저장
   useEffect(() => {
     localStorage.setItem('warroom_chat', JSON.stringify(storage));
   }, [storage]);
 
-  // 자동 스크롤
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [storage.currentConversationId, storage.conversations]);
@@ -81,7 +78,6 @@ export default function ChatPage() {
 
     let conversationId = storage.currentConversationId;
 
-    // 새 대화 시작
     if (!conversationId) {
       conversationId = generateId();
       const newConversation: Conversation = {
@@ -97,7 +93,6 @@ export default function ChatPage() {
         currentConversationId: conversationId,
       }));
     } else {
-      // 기존 대화에 추가
       setStorage((prev) => ({
         ...prev,
         conversations: prev.conversations.map((c) =>
@@ -127,7 +122,6 @@ export default function ChatPage() {
         throw new Error(data.error);
       }
 
-      // 여러 에이전트 응답 처리
       const assistantMessages: Message[] = data.responses.map((r: any) => ({
         role: 'assistant' as const,
         content: r.content,
@@ -148,7 +142,7 @@ export default function ChatPage() {
       console.error('Error:', error);
       const errorMessage: Message = {
         role: 'assistant',
-        content: `❌ 에러 발생: ${error instanceof Error ? error.message : '알 수 없는 에러'}`,
+        content: `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         timestamp: Date.now(),
       };
 
@@ -183,159 +177,247 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-slate-900 text-white overflow-hidden">
-      {/* Sidebar */}
-      <div className="w-72 bg-black/30 backdrop-blur-xl border-r border-white/10 flex flex-col">
-        {/* Header */}
-        <div className="p-4 border-b border-white/10">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-4">
-            WAR-ROOM
-          </h1>
-          <button
-            onClick={startNewChat}
-            className="w-full px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-xl font-medium transition-all shadow-lg shadow-purple-500/50"
-          >
-            + 새 대화
-          </button>
-        </div>
-
-        {/* Model Selector */}
-        <div className="p-4 border-b border-white/10">
-          <label className="text-xs text-gray-400 mb-2 block">AI 모델</label>
-          <select
-            value={storage.selectedModel}
-            onChange={(e) =>
-              setStorage((prev) => ({ ...prev, selectedModel: e.target.value }))
-            }
-            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-          >
-            {MODELS.map((model) => (
-              <option key={model.value} value={model.value} className="bg-slate-900">
-                {model.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Conversations List */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-2">
-          {storage.conversations.map((conv) => (
-            <div
-              key={conv.id}
-              className={`group relative p-3 rounded-lg cursor-pointer transition-all ${
-                conv.id === storage.currentConversationId
-                  ? 'bg-white/10 border border-purple-500/50'
-                  : 'bg-white/5 hover:bg-white/10 border border-transparent'
-              }`}
-              onClick={() => selectConversation(conv.id)}
-            >
-              <div className="text-sm font-medium truncate">{conv.title}</div>
-              <div className="text-xs text-gray-400 mt-1">
-                {new Date(conv.createdAt).toLocaleDateString('ko-KR')}
+    <div className="flex h-screen bg-[#0a0a0a] text-white">
+      {/* Sidebar - Collapsible */}
+      <div
+        className={`${
+          sidebarOpen ? 'w-80' : 'w-0'
+        } transition-all duration-300 ease-in-out bg-black/40 backdrop-blur-sm border-r border-white/5 flex flex-col overflow-hidden`}
+      >
+        <div className="flex-1 flex flex-col">
+          {/* Header */}
+          <div className="p-6 border-b border-white/5">
+            <div className="flex items-center justify-between mb-6">
+              <h1 className="text-xl font-semibold tracking-tight">WAR-ROOM</h1>
+              <div className="flex items-center gap-2">
+                <select
+                  value={storage.selectedModel}
+                  onChange={(e) =>
+                    setStorage((prev) => ({ ...prev, selectedModel: e.target.value }))
+                  }
+                  className="px-2 py-1 text-xs bg-white/5 border border-white/10 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500/50 hover:bg-white/10 transition-colors"
+                >
+                  {MODELS.map((model) => (
+                    <option key={model.value} value={model.value} className="bg-black">
+                      {model.label}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteConversation(conv.id);
-                }}
-                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 rounded transition-opacity"
-              >
-                🗑️
-              </button>
             </div>
-          ))}
+            <button
+              onClick={startNewChat}
+              className="w-full px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 group"
+            >
+              <span className="text-lg group-hover:rotate-90 transition-transform">+</span>
+              New Chat
+            </button>
+          </div>
+
+          {/* Conversations */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-1">
+            {storage.conversations.map((conv) => (
+              <div
+                key={conv.id}
+                className={`group relative p-3 rounded-lg cursor-pointer transition-all ${
+                  conv.id === storage.currentConversationId
+                    ? 'bg-white/10 border border-blue-500/30'
+                    : 'hover:bg-white/5 border border-transparent'
+                }`}
+                onClick={() => selectConversation(conv.id)}
+              >
+                <div className="text-sm font-medium truncate pr-6">{conv.title}</div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {new Date(conv.createdAt).toLocaleDateString()}
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteConversation(conv.id);
+                  }}
+                  className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/10 rounded transition-all text-xs"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
-        {/* Top Bar */}
-        <div className="h-16 bg-black/20 backdrop-blur-xl border-b border-white/10 flex items-center px-6">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse" />
-            <span className="text-sm text-gray-300">
-              AI Agents: 자동 선택 모드
-            </span>
-          </div>
-        </div>
+      <div className="flex-1 flex flex-col relative">
+        {/* Toggle Sidebar Button */}
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="absolute top-4 left-4 z-10 p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all"
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 6h16M4 12h16M4 18h16"
+            />
+          </svg>
+        </button>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {currentConversation && currentConversation.messages.length > 0 ? (
-            currentConversation.messages.map((msg, idx) => (
-              <div
-                key={idx}
-                className={`flex ${
-                  msg.role === 'user' ? 'justify-end' : 'justify-start'
-                }`}
-              >
+        <div className="flex-1 overflow-y-auto px-4 py-20">
+          <div className="max-w-4xl mx-auto space-y-6">
+            {!currentConversation || currentConversation.messages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center space-y-4 py-20">
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center mb-4">
+                  <svg
+                    className="w-8 h-8 text-blue-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                    />
+                  </svg>
+                </div>
+                <h2 className="text-2xl font-semibold text-gray-200">Welcome to WAR-ROOM</h2>
+                <p className="text-gray-500 max-w-md">
+                  Your AI-powered strategic analysis platform. Ask Dorothy and Alice anything.
+                </p>
+              </div>
+            ) : (
+              currentConversation.messages.map((msg, idx) => (
                 <div
-                  className={`max-w-[70%] rounded-2xl p-4 ${
-                    msg.role === 'user'
-                      ? 'bg-gradient-to-br from-purple-600 to-pink-600 shadow-lg shadow-purple-500/30'
-                      : 'bg-white/10 backdrop-blur-xl border border-white/20'
-                  }`}
+                  key={idx}
+                  className={`flex ${
+                    msg.role === 'user' ? 'justify-end' : 'justify-start'
+                  } animate-fade-in`}
                 >
-                  {msg.role === 'assistant' && msg.agent && (
-                    <div className="text-xs font-semibold mb-2 opacity-70">
-                      {msg.emoji} {msg.agent}
+                  {msg.role === 'assistant' && (
+                    <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center mr-3 mt-1">
+                      <span className="text-lg">{msg.emoji || '🤖'}</span>
                     </div>
                   )}
-                  <div className="whitespace-pre-wrap break-words">{msg.content}</div>
-                  <div className="text-xs opacity-50 mt-2">
-                    {new Date(msg.timestamp).toLocaleTimeString('ko-KR')}
+                  <div
+                    className={`max-w-3xl rounded-2xl px-6 py-4 ${
+                      msg.role === 'user'
+                        ? 'bg-blue-600/10 border border-blue-500/20'
+                        : 'bg-white/5 border border-white/10'
+                    }`}
+                  >
+                    {msg.agent && (
+                      <div className="text-xs font-semibold text-blue-400 mb-2">
+                        {msg.agent}
+                      </div>
+                    )}
+                    <div className="text-[15px] leading-relaxed whitespace-pre-wrap text-gray-100">
+                      {msg.content}
+                    </div>
+                  </div>
+                  {msg.role === 'user' && (
+                    <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-blue-600/20 flex items-center justify-center ml-3 mt-1">
+                      <span className="text-lg">👤</span>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+            {isLoading && (
+              <div className="flex justify-start animate-fade-in">
+                <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center mr-3 mt-1">
+                  <span className="text-lg">🤖</span>
+                </div>
+                <div className="max-w-3xl rounded-2xl px-6 py-4 bg-white/5 border border-white/10">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></div>
+                    <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse delay-75"></div>
+                    <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse delay-150"></div>
                   </div>
                 </div>
               </div>
-            ))
-          ) : (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center text-gray-400">
-                <div className="text-6xl mb-4">🤖</div>
-                <p className="text-xl mb-2">새 대화를 시작해보세요</p>
-                <p className="text-sm opacity-70">
-                  질문하면 AI가 자동으로 적합한 에이전트를 선택합니다
-                </p>
-              </div>
-            </div>
-          )}
-
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-4">
-                <div className="flex space-x-2">
-                  <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce delay-100"></div>
-                  <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce delay-200"></div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
-        {/* Input */}
-        <div className="p-6 bg-black/20 backdrop-blur-xl border-t border-white/10">
-          <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="flex gap-3">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="메시지를 입력하세요..."
-              disabled={isLoading}
-              className="flex-1 px-6 py-4 bg-white/5 border border-white/10 rounded-2xl focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 backdrop-blur-xl"
-            />
-            <button
-              type="submit"
-              disabled={isLoading || !input.trim()}
-              className="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-2xl font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-purple-500/50"
-            >
-              {isLoading ? '⏳' : '전송'}
-            </button>
-          </form>
+        {/* Input Area */}
+        <div className="border-t border-white/5 bg-black/20 backdrop-blur-sm p-4">
+          <div className="max-w-4xl mx-auto">
+            <div className="relative flex items-end gap-3">
+              <div className="flex-1 relative">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder="Ask Dorothy or Alice anything..."
+                  className="w-full px-6 py-4 bg-white/5 border border-white/10 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent resize-none text-[15px] leading-relaxed placeholder:text-gray-500 transition-all hover:bg-white/10"
+                  rows={1}
+                  style={{
+                    minHeight: '56px',
+                    maxHeight: '200px',
+                  }}
+                />
+              </div>
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || isLoading}
+                className="flex-shrink-0 w-14 h-14 bg-blue-600 hover:bg-blue-500 disabled:bg-white/5 disabled:cursor-not-allowed rounded-2xl flex items-center justify-center transition-all shadow-lg shadow-blue-500/20 disabled:shadow-none"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                  />
+                </svg>
+              </button>
+            </div>
+            <p className="text-xs text-gray-600 mt-3 text-center">
+              Dorothy: Financial Analysis • Alice: Strategy Consulting
+            </p>
+          </div>
         </div>
       </div>
+
+      <style jsx global>{`
+        @keyframes fade-in {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .animate-fade-in {
+          animation: fade-in 0.3s ease-out;
+        }
+        .delay-75 {
+          animation-delay: 75ms;
+        }
+        .delay-150 {
+          animation-delay: 150ms;
+        }
+      `}</style>
     </div>
   );
 }
