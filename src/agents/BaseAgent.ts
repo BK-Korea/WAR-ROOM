@@ -1,6 +1,6 @@
-import { Agent, AgentContext, AgentMessage, AgentMetadata, AgentStatus, TaskResult } from '../types/agent.js';
-import { query } from '../db/connection.js';
-import { glmClient, GLMMessage } from '../llm/GLMClient.js';
+import { Agent, AgentContext, AgentMessage, AgentMetadata, AgentStatus, TaskResult } from '../types/agent';
+import { query } from '../db/connection';
+import { glmClient, GLMMessage } from '../llm/GLMClient';
 
 export abstract class BaseAgent implements Agent {
   public metadata: AgentMetadata;

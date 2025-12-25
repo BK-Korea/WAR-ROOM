@@ -1,5 +1,5 @@
-import { WarRoom } from './orchestrator/WarRoom.js';
-import { AgentContext } from './types/agent.js';
+import { WarRoom } from './orchestrator/WarRoom';
+import { AgentContext } from './types/agent';
 
 async function main() {
   const warRoom = new WarRoom();

@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { query } from '../db/connection.js';
+import { query } from '../db/connection';
 
 /**
  * SEC Edgar API Client

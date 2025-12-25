@@ -1,12 +1,12 @@
-import { Agent, AgentContext, AgentMessage, TaskResult } from '../types/agent.js';
-import { Alice } from '../agents/Alice.js';
-import { Dorothy } from '../agents/Dorothy.js';
-import { Belle } from '../agents/Belle.js';
-import { Anna } from '../agents/Anna.js';
-import { Wendy } from '../agents/Wendy.js';
-import { Aurora } from '../agents/Aurora.js';
-import { Elsa } from '../agents/Elsa.js';
-import { Amy } from '../agents/Amy.js';
+import { Agent, AgentContext, AgentMessage, TaskResult } from '../types/agent';
+import { Alice } from '../agents/Alice';
+import { Dorothy } from '../agents/Dorothy';
+import { Belle } from '../agents/Belle';
+import { Anna } from '../agents/Anna';
+import { Wendy } from '../agents/Wendy';
+import { Aurora } from '../agents/Aurora';
+import { Elsa } from '../agents/Elsa';
+import { Amy } from '../agents/Amy';
 
 export class WarRoom {
   private agents: Map<string, Agent>;

@@ -1,7 +1,7 @@
-import { BaseAgent } from './BaseAgent.js';
-import { AgentContext, TaskResult } from '../types/agent.js';
-import { query } from '../db/connection.js';
-import { ALICE_SYSTEM_PROMPT, ALICE_TASK_PROMPTS } from '../prompts/alice.js';
+import { BaseAgent } from './BaseAgent';
+import { AgentContext, TaskResult } from '../types/agent';
+import { query } from '../db/connection';
+import { ALICE_SYSTEM_PROMPT, ALICE_TASK_PROMPTS } from '../prompts/alice';
 
 /**
  * Alice - McKinsey-level Strategic Consultant

@@ -1,8 +1,8 @@
-import { BaseAgent } from './BaseAgent.js';
-import { AgentContext, TaskResult } from '../types/agent.js';
-import { query } from '../db/connection.js';
-import { DOROTHY_SYSTEM_PROMPT, DOROTHY_TASK_PROMPTS } from '../prompts/dorothy.js';
-import { secClient, SECFiling } from '../services/SECClient.js';
+import { BaseAgent } from './BaseAgent';
+import { AgentContext, TaskResult } from '../types/agent';
+import { query } from '../db/connection';
+import { DOROTHY_SYSTEM_PROMPT, DOROTHY_TASK_PROMPTS } from '../prompts/dorothy';
+import { secClient, SECFiling } from '../services/SECClient';
 
 /**
  * Dorothy - CFA-level Financial Analyst (SEC Data Specialist)
