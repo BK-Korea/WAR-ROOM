@@ -666,7 +666,12 @@ If the answer is not in the filings, explicitly state "이 정보는 SEC filing�
             type: f.filing_type,
             date: f.filing_date,
             accessionNumber: f.accession_number
-          }))
+          })),
+          statusLog: [
+            `✓ 회사 추출: ${filings[0].company_name}`,
+            `✓ SEC filing ${filings.length}개 사용`,
+            `✓ 분석 완료`
+          ]
         }
       };
     } catch (error: any) {

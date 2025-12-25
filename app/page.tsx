@@ -41,6 +41,7 @@ export default function ChatPage() {
   });
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState<string>('작업 준비 중...');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -105,8 +106,32 @@ export default function ChatPage() {
 
     setInput('');
     setIsLoading(true);
+    setLoadingStatus('질문을 분석하고 있어...');
 
     try {
+      // Predict which agents will be used based on keywords
+      const lowerInput = input.toLowerCase();
+      const hasDorothy = lowerInput.includes('재무') || lowerInput.includes('sec') ||
+                         lowerInput.includes('financial') || lowerInput.includes('주식') ||
+                         lowerInput.includes('실적') || lowerInput.includes('burn');
+      const hasAlice = lowerInput.includes('전략') || lowerInput.includes('비즈니스') ||
+                       lowerInput.includes('business') || lowerInput.includes('model') ||
+                       lowerInput.includes('모델') || lowerInput.includes('분석') ||
+                       lowerInput.includes('현황');
+
+      if (hasDorothy) {
+        setLoadingStatus('Dorothy (재무 분석가) 작업 중...');
+        // Simulate Dorothy's workflow
+        setTimeout(() => setLoadingStatus('회사 정보 추출 중...'), 500);
+        setTimeout(() => setLoadingStatus('SEC 데이터 검색 중...'), 1500);
+        setTimeout(() => setLoadingStatus('재무 데이터 분석 중...'), 3000);
+      } else if (hasAlice) {
+        setLoadingStatus('Alice (전략 컨설턴트) 작업 중...');
+        setTimeout(() => setLoadingStatus('비즈니스 모델 분석 중...'), 500);
+      } else {
+        setLoadingStatus('에이전트 선택 중...');
+      }
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -116,6 +141,7 @@ export default function ChatPage() {
         }),
       });
 
+      setLoadingStatus('응답 처리 중...');
       const data = await response.json();
 
       if (data.error) {
@@ -335,10 +361,13 @@ export default function ChatPage() {
                   <span className="text-lg">🤖</span>
                 </div>
                 <div className="max-w-3xl rounded-2xl px-6 py-4 bg-white/5 border border-white/10">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></div>
-                    <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse delay-75"></div>
-                    <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse delay-150"></div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></div>
+                      <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse delay-75"></div>
+                      <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse delay-150"></div>
+                    </div>
+                    <span className="text-sm text-gray-300">{loadingStatus}</span>
                   </div>
                 </div>
               </div>

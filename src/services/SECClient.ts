@@ -64,23 +64,28 @@ export class SECClient {
 
   /**
    * Get company info by ticker symbol
-   * Uses submissions API - tries ticker as CIK first, then searches
+   * Uses Edgar search to find company by ticker
    */
   async getCompanyByTicker(ticker: string): Promise<SECCompanyInfo | null> {
     await this.rateLimit();
 
-    try {
-      console.log(`[SEC Client] Looking up ticker: ${ticker}`);
+    console.log(`[SEC Client] Looking up ticker: ${ticker}`);
 
-      // Try direct CIK lookup first (some tickers are numeric)
+    // Try direct CIK lookup first (some tickers are numeric)
+    try {
       const directLookup = await this.getCompanyByCIK(ticker);
       if (directLookup) {
         console.log(`[SEC Client] ✓ Found via direct CIK lookup: ${directLookup.name}`);
         return directLookup;
       }
+    } catch (directError) {
+      // Expected for non-numeric tickers, continue to Edgar search
+      console.log(`[SEC Client] Direct CIK lookup failed (expected for ticker), trying Edgar search...`);
+    }
 
-      // Fallback: Use Edgar company search
-      // Note: This searches by company name or ticker
+    // Use Edgar company search
+    try {
+      console.log(`[SEC Client] Searching Edgar for ticker: ${ticker}`);
       const searchUrl = `https://www.sec.gov/cgi-bin/browse-edgar`;
       const response = await axios.get(searchUrl, {
         params: {
@@ -103,17 +108,17 @@ export class SECClient {
       const cikMatch = html.match(/CIK=(\d+)/);
 
       if (!cikMatch) {
-        console.log(`[SEC Client] ✗ No CIK found for ticker: ${ticker}`);
+        console.log(`[SEC Client] ✗ No CIK found in Edgar search for: ${ticker}`);
         return null;
       }
 
       const cik = cikMatch[1].padStart(10, '0');
-      console.log(`[SEC Client] ✓ Found CIK via search: ${cik}`);
+      console.log(`[SEC Client] ✓ Found CIK via Edgar search: ${cik}`);
 
       // Now get full company info using CIK
       return await this.getCompanyByCIK(cik);
-    } catch (error) {
-      console.error('[SEC Client] Error fetching company by ticker:', error);
+    } catch (searchError) {
+      console.error('[SEC Client] Edgar search failed:', searchError);
       return null;
     }
   }
