@@ -1,4 +1,4 @@
-import { query, closePool } from './connection';
+import { query, closePool } from '../src/db/connection';
 
 async function seed() {
   console.log('Seeding database with sample data...');
