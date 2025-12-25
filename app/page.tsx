@@ -155,8 +155,11 @@ export default function ChatPage() {
                 finalResponses = jsonData.data.responses;
                 console.log('[Frontend] 📥 Received responses:', {
                   count: finalResponses.length,
-                  agents: finalResponses.map((r: any) => r.agent)
+                  agents: finalResponses.map((r: any) => r.agent),
+                  data: finalResponses  // 전체 배열 출력
                 });
+                console.log('[Frontend] 🔍 Dorothy response:', finalResponses.find((r: any) => r.agent === 'Dorothy'));
+                console.log('[Frontend] 🔍 Alice response:', finalResponses.find((r: any) => r.agent === 'Alice'));
                 break;
               case 'error':
                 throw new Error(jsonData.data.message);
