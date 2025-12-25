@@ -31,7 +31,7 @@ export async function query<T = any>(text: string, params?: any[]): Promise<{ ro
         connectionTimeoutMillis: 2000,
       });
 
-      postgresPool.on('error', (err) => {
+      postgresPool.on('error', (err: Error) => {
         console.error('Unexpected error on idle PostgreSQL client', err);
       });
     }
