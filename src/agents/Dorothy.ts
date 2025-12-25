@@ -98,7 +98,7 @@ export class Dorothy extends BaseAgent {
    * Returns downloaded filings with markdown content for immediate use
    */
   private async fetchSECData(params: any, context: AgentContext): Promise<TaskResult> {
-    const { ticker, cik, filingType, limit = 5 } = params;
+    const { ticker, cik, filingType, filingTypes, year, limit = 10 } = params;
 
     try {
       // Get company info
@@ -135,8 +135,26 @@ export class Dorothy extends BaseAgent {
         console.log('[Dorothy] DB write failed (read-only mode), continuing with in-memory data');
       }
 
-      // Fetch filings
-      const filings = await secClient.getFilings(companyInfo.cik, filingType, limit);
+      // Determine filing types to fetch
+      // Priority: filingTypes > filingType > default comprehensive list
+      let typesToFetch: string[] | undefined;
+      if (filingTypes) {
+        typesToFetch = Array.isArray(filingTypes) ? filingTypes : [filingTypes];
+      } else if (filingType) {
+        typesToFetch = [filingType];
+      } else {
+        // Default: fetch all major financial filing types
+        // 10-K/10-Q: US companies, 20-F: foreign companies, 6-K: foreign current reports, 8-K: current reports
+        typesToFetch = ['10-K', '10-Q', '20-F', '6-K', '8-K'];
+      }
+
+      console.log(`[Dorothy] 📊 Fetching SEC filings:`);
+      console.log(`[Dorothy] - Types: ${typesToFetch.join(', ')}`);
+      console.log(`[Dorothy] - Year: ${year || 'all'}`);
+      console.log(`[Dorothy] - Limit: ${limit}`);
+
+      // Fetch filings with new parameters
+      const filings = await secClient.getFilings(companyInfo.cik, typesToFetch, limit, year);
 
       if (filings.length === 0) {
         return {
@@ -525,26 +543,28 @@ Provide comprehensive financial health assessment:
     console.log('└─────────────────────────────────────────');
 
     try {
-      // Extract company info from question if not provided
+      // Extract company info and year from question if not provided
       let companyTicker = ticker;
       let companyCIK = cik;
-
       let companyName = '';
+      let extractedYear: number | undefined;
 
       if (!companyTicker && !companyCIK) {
         progress('회사명 추출 중...');
-        console.log('\n[Dorothy] 1️⃣  회사명 추출 중...');
-        console.log('[Dorothy] - LLM을 사용하여 질문에서 회사 정보 추출');
+        console.log('\n[Dorothy] 1️⃣  회사명 및 연도 추출 중...');
+        console.log('[Dorothy] - LLM을 사용하여 질문에서 회사 정보 및 연도 추출');
 
         const extractedInfo = await this.extractCompanyFromQuestion(question);
         if (extractedInfo) {
           companyTicker = extractedInfo.ticker;
           companyCIK = extractedInfo.cik;
           companyName = extractedInfo.companyName || '';
+          extractedYear = extractedInfo.year;
           console.log(`[Dorothy] ✓ 추출 완료:`);
           console.log(`[Dorothy]   - 회사명: ${companyName || 'N/A'}`);
           console.log(`[Dorothy]   - Ticker: ${companyTicker || 'N/A'}`);
           console.log(`[Dorothy]   - CIK: ${companyCIK || 'N/A'}`);
+          console.log(`[Dorothy]   - 연도: ${extractedYear || '전체 기간'}`);
         } else {
           console.log('[Dorothy] ✗ 회사 정보 추출 실패');
         }
@@ -594,16 +614,18 @@ Provide comprehensive financial health assessment:
         progress('SEC Edgar에서 filing 다운로드 중...');
         console.log(`\n[Dorothy] 3️⃣  SEC Edgar에서 자동 다운로드 시작...`);
         console.log(`[Dorothy] - 대상: ${companyTicker || companyCIK || companyName}`);
-        console.log(`[Dorothy] - Filing 타입: ${filingType || 'all (10-K, 10-Q)'}`);
-        console.log(`[Dorothy] - 다운로드 limit: 3`);
+        console.log(`[Dorothy] - Filing 타입: ${filingType || 'all (10-K, 10-Q, 20-F, 6-K, 8-K)'}`);
+        console.log(`[Dorothy] - 연도: ${extractedYear || 'all'}`);
+        console.log(`[Dorothy] - 다운로드 limit: 20`);
 
         // Try ticker first, then fallback to company name
         let fetchResult = await this.fetchSECData(
           {
             ticker: companyTicker || companyCIK || companyName,
             cik: companyCIK,
-            filingType: filingType || undefined,
-            limit: 3
+            filingType: filingType || undefined,  // If not specified, fetchSECData will use all types
+            year: extractedYear,
+            limit: 20  // Increased limit to get more filings
           },
           context
         );
@@ -616,7 +638,8 @@ Provide comprehensive financial health assessment:
               ticker: companyName,  // Try with full company name
               cik: companyCIK,
               filingType: filingType || undefined,
-              limit: 3
+              year: extractedYear,
+              limit: 20
             },
             context
           );
@@ -771,11 +794,11 @@ Cite specific sections and quote exact numbers.`;
   // Helper methods
 
   /**
-   * Extract company name/ticker from natural language question using LLM
+   * Extract company name/ticker and year from natural language question using LLM
    */
-  private async extractCompanyFromQuestion(question: string): Promise<{ ticker?: string; cik?: string; companyName?: string } | null> {
+  private async extractCompanyFromQuestion(question: string): Promise<{ ticker?: string; cik?: string; companyName?: string; year?: number } | null> {
     try {
-      const extractPrompt = `Extract the company name or stock ticker from this question.
+      const extractPrompt = `Extract the company name, stock ticker, and year (if mentioned) from this question.
 
 QUESTION: ${question}
 
@@ -783,15 +806,23 @@ Response format (JSON only, no explanation):
 {
   "companyName": "Full company name if mentioned",
   "ticker": "Stock ticker symbol if mentioned or can be inferred",
-  "cik": "CIK number if mentioned"
+  "cik": "CIK number if mentioned",
+  "year": "4-digit year if mentioned (e.g., 2024, 2023)"
 }
 
-If no company is mentioned, respond with: {"companyName": null, "ticker": null, "cik": null}
+If no company is mentioned, respond with: {"companyName": null, "ticker": null, "cik": null, "year": null}
 
 Examples:
-- "Vertical Aerospace의 재무 현황은?" → {"companyName": "Vertical Aerospace", "ticker": "EVTL", "cik": null}
-- "AAPL 주가는?" → {"companyName": "Apple Inc", "ticker": "AAPL", "cik": null}
-- "Tesla의 burn rate는?" → {"companyName": "Tesla", "ticker": "TSLA", "cik": null}
+- "Vertical Aerospace의 재무 현황은?" → {"companyName": "Vertical Aerospace", "ticker": "EVTL", "cik": null, "year": null}
+- "AAPL 2024년 실적은?" → {"companyName": "Apple Inc", "ticker": "AAPL", "cik": null, "year": 2024}
+- "Tesla의 24년 burn rate는?" → {"companyName": "Tesla", "ticker": "TSLA", "cik": null, "year": 2024}
+- "2023년 NVDA 재무제표" → {"companyName": "NVIDIA", "ticker": "NVDA", "cik": null, "year": 2023}
+
+Year extraction rules:
+- "2024년", "2024" → 2024
+- "24년" → 2024 (assume 20XX for 2-digit years)
+- "23년" → 2023
+- If no year mentioned → null
 
 Now extract from the question above:`;
 
@@ -806,6 +837,22 @@ Now extract from the question above:`;
 
       const parsed = JSON.parse(jsonMatch[0]);
 
+      // Parse year if present
+      let year: number | undefined;
+      if (parsed.year) {
+        year = parseInt(String(parsed.year));
+        // Validate year range (2000-2030)
+        if (year < 100) {
+          year = 2000 + year; // Convert 24 → 2024
+        }
+        if (year < 2000 || year > 2030) {
+          console.warn(`[Dorothy] Invalid year extracted: ${year}, ignoring`);
+          year = undefined;
+        } else {
+          console.log(`[Dorothy] ✓ Year extracted: ${year}`);
+        }
+      }
+
       // If ticker found, try to get company info from SEC
       if (parsed.ticker) {
         const companyInfo = await secClient.getCompanyByTicker(parsed.ticker);
@@ -813,7 +860,8 @@ Now extract from the question above:`;
           return {
             ticker: parsed.ticker,
             cik: companyInfo.cik,
-            companyName: companyInfo.name
+            companyName: companyInfo.name,
+            year
           };
         }
       }
@@ -826,7 +874,8 @@ Now extract from the question above:`;
           return {
             ticker: companyInfo.tickers[0],
             cik: companyInfo.cik,
-            companyName: companyInfo.name
+            companyName: companyInfo.name,
+            year
           };
         }
       }
@@ -836,6 +885,7 @@ Now extract from the question above:`;
         return {
           ticker: parsed.ticker || undefined,
           cik: parsed.cik || undefined,
+          year,
           companyName: parsed.companyName || undefined
         };
       }

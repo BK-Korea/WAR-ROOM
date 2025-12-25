@@ -178,11 +178,16 @@ export class SECClient {
 
   /**
    * Get recent filings for a company
+   * @param cik Company CIK
+   * @param filingTypes Filing type(s) to filter - can be single string or array
+   * @param limit Maximum number of filings to return
+   * @param year Optional year to filter filings (e.g., 2024)
    */
   async getFilings(
     cik: string,
-    filingType?: string,
-    limit: number = 10
+    filingTypes?: string | string[],
+    limit: number = 10,
+    year?: number
   ): Promise<SECFiling[]> {
     await this.rateLimit();
 
@@ -196,12 +201,31 @@ export class SECClient {
       const filings = response.data.filings.recent;
       const results: SECFiling[] = [];
 
+      // Normalize filingTypes to array
+      const typesArray = filingTypes
+        ? (Array.isArray(filingTypes) ? filingTypes : [filingTypes])
+        : null;
+
+      console.log(`[SEC Client] Fetching filings for CIK ${paddedCIK}:`);
+      console.log(`[SEC Client] - Types: ${typesArray ? typesArray.join(', ') : 'all'}`);
+      console.log(`[SEC Client] - Year: ${year || 'all'}`);
+      console.log(`[SEC Client] - Limit: ${limit}`);
+
       for (let i = 0; i < filings.accessionNumber.length && results.length < limit; i++) {
         const type = filings.form[i];
+        const filingDate = filings.filingDate[i]; // Format: YYYY-MM-DD
 
         // Filter by filing type if specified
-        if (filingType && type !== filingType) {
+        if (typesArray && !typesArray.includes(type)) {
           continue;
+        }
+
+        // Filter by year if specified
+        if (year) {
+          const filingYear = parseInt(filingDate.split('-')[0]);
+          if (filingYear !== year) {
+            continue;
+          }
         }
 
         const accessionNumber = filings.accessionNumber[i];
@@ -216,6 +240,11 @@ export class SECClient {
           accessionNumber: accessionNumber,
           fileUrl: `https://www.sec.gov/Archives/edgar/data/${parseInt(paddedCIK)}/${accessionNumberNoHyphens}/${accessionNumber}.txt`
         });
+      }
+
+      console.log(`[SEC Client] ✓ Found ${results.length} filings`);
+      if (results.length > 0) {
+        console.log(`[SEC Client] Filing types found: ${[...new Set(results.map(f => f.filingType))].join(', ')}`);
       }
 
       return results;
