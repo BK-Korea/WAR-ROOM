@@ -129,11 +129,17 @@ export async function POST(req: NextRequest) {
                 content = result.success ? (result.data.answer || '분석 결과가 없어') : `❌ ${result.error}`;
 
                 if (result.success) {
-                  responses.push({
+                  const dorothyResponse = {
                     agent: 'Dorothy',
                     content,
                     emoji: '💼',
                     status: result.data.sourcesUsed ? 'SEC 데이터 기반' : '데이터 없음'
+                  };
+                  responses.push(dorothyResponse);
+                  console.log('[Dorothy] ✅ Response added to array:', {
+                    contentLength: content.length,
+                    hasContent: !!content,
+                    totalResponses: responses.length
                   });
                 }
               } else if (agentName === 'Alice') {
@@ -171,10 +177,16 @@ export async function POST(req: NextRequest) {
           }
 
           // Send final responses
+          console.log('\n[SSE] 📤 Sending final responses:', {
+            count: responses.length,
+            agents: responses.map(r => r.agent)
+          });
+
           if (responses.length === 0) {
             sendEvent('error', { message: '모든 에이전트가 응답에 실패했어' });
           } else {
             sendEvent('responses', { responses });
+            console.log('[SSE] ✅ Responses sent via SSE');
           }
 
           sendEvent('done', {});

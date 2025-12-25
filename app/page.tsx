@@ -153,11 +153,16 @@ export default function ChatPage() {
                 break;
               case 'responses':
                 finalResponses = jsonData.data.responses;
+                console.log('[Frontend] 📥 Received responses:', {
+                  count: finalResponses.length,
+                  agents: finalResponses.map((r: any) => r.agent)
+                });
                 break;
               case 'error':
                 throw new Error(jsonData.data.message);
               case 'done':
                 // Stream completed
+                console.log('[Frontend] ✅ Stream completed, finalResponses:', finalResponses.length);
                 break;
             }
           } catch (parseError) {
