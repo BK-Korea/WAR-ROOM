@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .env
+.env.local
+.env*.local
 *.log
 .DS_Store
 coverage/
@@ -8,3 +10,9 @@ coverage/
 .idea/
 war-room.db
 war-room.db*
+
+# Next.js
+.next/
+out/
+next-env.d.ts
+.vercel
