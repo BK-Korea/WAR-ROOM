@@ -87,17 +87,22 @@ export class Alice extends BaseAgent {
         response = await this.callLLM(userQuery, 0.7);
       }
 
-      // Log the consultation
+      // Log the consultation (graceful degradation if table doesn't exist)
       if (context.projectId) {
-        await query(`
-          INSERT INTO alice_strategy.analysis_history (project_id, analysis_type, analysis_data, insights)
-          VALUES ($1, $2, $3, $4)
-        `, [
-          context.projectId,
-          'consultation',
-          JSON.stringify({ query: userQuery }),
-          response
-        ]);
+        try {
+          await query(`
+            INSERT INTO alice_strategy.analysis_history (project_id, analysis_type, analysis_data, insights)
+            VALUES ($1, $2, $3, $4)
+          `, [
+            context.projectId,
+            'consultation',
+            JSON.stringify({ query: userQuery }),
+            response
+          ]);
+        } catch (error) {
+          // Failed to save to DB, but continue
+          console.warn('[Alice] Could not save consultation history:', error);
+        }
       }
 
       return {
