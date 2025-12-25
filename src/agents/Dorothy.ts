@@ -593,19 +593,34 @@ Provide comprehensive financial health assessment:
       if (filings.length === 0) {
         progress('SEC Edgar에서 filing 다운로드 중...');
         console.log(`\n[Dorothy] 3️⃣  SEC Edgar에서 자동 다운로드 시작...`);
-        console.log(`[Dorothy] - 대상: ${companyTicker || companyCIK}`);
+        console.log(`[Dorothy] - 대상: ${companyTicker || companyCIK || companyName}`);
         console.log(`[Dorothy] - Filing 타입: ${filingType || 'all (10-K, 10-Q)'}`);
         console.log(`[Dorothy] - 다운로드 limit: 3`);
 
-        const fetchResult = await this.fetchSECData(
+        // Try ticker first, then fallback to company name
+        let fetchResult = await this.fetchSECData(
           {
-            ticker: searchTerm,  // Use searchTerm which includes company name fallback
+            ticker: companyTicker || companyCIK || companyName,
             cik: companyCIK,
             filingType: filingType || undefined,
             limit: 3
           },
           context
         );
+
+        // If ticker search failed and we have a company name, try again with company name
+        if (!fetchResult.success && companyTicker && companyName && companyTicker !== companyName) {
+          console.log(`[Dorothy] ⚠️  Ticker "${companyTicker}" 검색 실패, 회사명 "${companyName}"으로 재시도...`);
+          fetchResult = await this.fetchSECData(
+            {
+              ticker: companyName,  // Try with full company name
+              cik: companyCIK,
+              filingType: filingType || undefined,
+              limit: 3
+            },
+            context
+          );
+        }
 
         if (!fetchResult.success) {
           console.log(`[Dorothy] ✗ SEC 다운로드 실패: ${fetchResult.error}`);

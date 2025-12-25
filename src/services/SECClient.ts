@@ -106,17 +106,37 @@ export class SECClient {
       // Parse HTML response to extract CIK
       const html = response.data;
 
-      // Try multiple patterns to extract CIK
-      let cikMatch = html.match(/CIK=0*(\d+)/);  // Remove leading zeros
+      // Check if search returned no results
+      if (html.includes('No matching') || html.includes('No companies')) {
+        console.log(`[SEC Client] ✗ No matching companies found for: ${ticker}`);
+        return null;
+      }
 
-      if (!cikMatch) {
-        // Try alternative pattern
-        cikMatch = html.match(/\/cik\/(\d+)\//);
+      // Try multiple patterns to extract CIK (ordered by likelihood)
+      const patterns = [
+        /CIK=0*(\d+)/i,                    // CIK=0001867102 (most common)
+        /\/cik\/0*(\d+)\//i,               // /cik/0001867102/
+        /CIK:\s*0*(\d+)/i,                 // CIK: 1867102
+        /CIK\s+0*(\d+)/i,                  // CIK 1867102
+        /cik=0*(\d+)/i,                    // cik=1867102 (lowercase)
+        /<CIK>0*(\d+)<\/CIK>/i,            // <CIK>1867102</CIK>
+        /seriesCik=0*(\d+)/i,              // seriesCik=1867102
+        /company\/0*(\d+)/i,               // company/1867102
+      ];
+
+      let cikMatch = null;
+      for (const pattern of patterns) {
+        cikMatch = html.match(pattern);
+        if (cikMatch) {
+          console.log(`[SEC Client] ✓ CIK matched with pattern: ${pattern}`);
+          break;
+        }
       }
 
       if (!cikMatch) {
         console.log(`[SEC Client] ✗ No CIK found in Edgar search for: ${ticker}`);
-        console.log(`[SEC Client] HTML preview:`, html.substring(0, 500));
+        console.log(`[SEC Client] HTML length:`, html.length);
+        console.log(`[SEC Client] HTML preview:`, html.substring(0, 1000));
         return null;
       }
 
