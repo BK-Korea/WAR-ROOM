@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { query } from '../db/connection';
+import { jinaClient } from './JinaAIClient';
 
 /**
  * SEC Edgar API Client
@@ -216,21 +217,38 @@ export class SECClient {
   }
 
   /**
-   * Store filing in database
+   * Store filing in database with automatic markdown conversion
    */
   async storeFiling(
     companyId: number,
     filing: SECFiling,
     content: string
   ): Promise<number> {
+    // Convert to markdown using Jina AI
+    let markdownContent: string | null = null;
+    let conversionStatus = 'pending';
+
+    try {
+      console.log(`[SEC Client] Converting filing to markdown with Jina AI...`);
+      const jinaResult = await jinaClient.convertURL(filing.fileUrl);
+      markdownContent = jinaResult.markdown;
+      conversionStatus = 'converted';
+      console.log(`[SEC Client] ✅ Markdown conversion successful (${jinaResult.tokensUsed} tokens)`);
+    } catch (error) {
+      console.error('[SEC Client] Markdown conversion failed, storing raw content only:', error);
+      conversionStatus = 'failed';
+    }
+
     const result = await query(`
       INSERT INTO dorothy_finance.sec_filings (
         company_id, cik, filing_type, filing_date, report_date,
-        accession_number, file_url, raw_content
+        accession_number, file_url, raw_content, markdown_content, conversion_status
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (accession_number) DO UPDATE
       SET raw_content = EXCLUDED.raw_content,
+          markdown_content = EXCLUDED.markdown_content,
+          conversion_status = EXCLUDED.conversion_status,
           updated_at = CURRENT_TIMESTAMP
       RETURNING id
     `, [
@@ -241,7 +259,9 @@ export class SECClient {
       filing.reportDate,
       filing.accessionNumber,
       filing.fileUrl,
-      content
+      content,
+      markdownContent,
+      conversionStatus
     ]);
 
     return result.rows[0].id;

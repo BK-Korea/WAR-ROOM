@@ -567,11 +567,11 @@ ${filings.map((f: any) => `- ${f.filing_type} filed ${f.filing_date}`).join('\n'
 SEC FILING DATA:
 ${filings.map((f: any) => `
 === ${f.filing_type} (${f.filing_date}) ===
-${this.truncateContent(f.raw_content, 10000)}
+${this.truncateContent(f.markdown_content || f.raw_content, 10000)}
 `).join('\n\n')}
 
 Answer the question using ONLY the SEC filing data provided above.
-If the answer is not in the filings, explicitly state "This information is not available in the SEC filings."`;
+If the answer is not in the filings, explicitly state "이 정보는 SEC filing에 없어, Master."`;
 
       const answer = await this.callLLM(answerPrompt, 0.3);
 
