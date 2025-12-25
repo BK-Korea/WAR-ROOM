@@ -3,6 +3,7 @@ import { AgentContext, TaskResult } from '../types/agent';
 import { query } from '../db/connection';
 import { DOROTHY_SYSTEM_PROMPT, DOROTHY_TASK_PROMPTS } from '../prompts/dorothy';
 import { secClient, SECFiling, SECCompanyInfo } from '../services/SECClient';
+import { jinaClient } from '../services/JinaAIClient';
 import axios from 'axios';
 
 /**
@@ -94,6 +95,7 @@ export class Dorothy extends BaseAgent {
 
   /**
    * Fetch SEC filings for a company
+   * Returns downloaded filings with markdown content for immediate use
    */
   private async fetchSECData(params: any, context: AgentContext): Promise<TaskResult> {
     const { ticker, cik, filingType, limit = 5 } = params;
@@ -119,15 +121,19 @@ export class Dorothy extends BaseAgent {
         };
       }
 
-      // Get or create company in our database
-      const companyResult = await query(`
-        INSERT INTO companies (name, industry, website, description)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-        RETURNING id
-      `, [companyInfo.name, 'Public Company', '', `CIK: ${companyInfo.cik}`]);
-
-      const companyId = companyResult.rows[0]?.id || 0;
+      // Try to get or create company in database (may fail in Vercel)
+      let companyId = 0;
+      try {
+        const companyResult = await query(`
+          INSERT INTO companies (name, industry, website, description)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+          RETURNING id
+        `, [companyInfo.name, 'Public Company', '', `CIK: ${companyInfo.cik}`]);
+        companyId = companyResult.rows[0]?.id || 0;
+      } catch (dbError) {
+        console.log('[Dorothy] DB write failed (read-only mode), continuing with in-memory data');
+      }
 
       // Fetch filings
       const filings = await secClient.getFilings(companyInfo.cik, filingType, limit);
@@ -138,32 +144,54 @@ export class Dorothy extends BaseAgent {
           data: {
             message: `No ${filingType || 'filings'} found for ${companyInfo.name}`,
             company: companyInfo,
-            filings: []
+            filings: [],
+            filingsDownloaded: 0,
+            filingsTotal: 0
           }
         };
       }
 
-      // Download and store each filing
-      const storedFilings = [];
+      // Download and optionally store each filing
+      const downloadedFilings = [];
       for (const filing of filings) {
-        // Check if already exists
-        const exists = await secClient.filingExists(filing.accessionNumber);
-
-        if (!exists) {
-          console.log(`Downloading ${filing.filingType} from ${filing.filingDate}...`);
+        try {
+          console.log(`[Dorothy] Downloading ${filing.filingType} from ${filing.filingDate}...`);
           const content = await secClient.downloadFiling(filing);
 
-          const filingId = await secClient.storeFiling(companyId, filing, content);
-          storedFilings.push({
-            ...filing,
-            filingId,
-            status: 'downloaded'
+          // Convert to markdown using Jina AI
+          let markdownContent: string | null = null;
+          try {
+            console.log(`[Dorothy] Converting to markdown with Jina AI...`);
+            const jinaResult = await jinaClient.convertURL(filing.fileUrl);
+            markdownContent = jinaResult.markdown;
+            console.log(`[Dorothy] ✅ Markdown conversion successful (${jinaResult.tokensUsed} tokens)`);
+          } catch (jinaError) {
+            console.log('[Dorothy] Markdown conversion failed, using raw content');
+          }
+
+          // Try to store in DB (will fail in Vercel read-only mode, but that's OK)
+          try {
+            if (companyId > 0) {
+              await secClient.storeFiling(companyId, filing, content);
+            }
+          } catch (dbError) {
+            console.log('[Dorothy] DB storage failed (read-only mode), using in-memory data');
+          }
+
+          // Add to in-memory results with all data needed for LLM
+          downloadedFilings.push({
+            filing_type: filing.filingType,
+            filing_date: filing.filingDate,
+            report_date: filing.reportDate,
+            accession_number: filing.accessionNumber,
+            company_name: companyInfo.name,
+            cik: filing.cik,
+            raw_content: content,
+            markdown_content: markdownContent,
+            file_url: filing.fileUrl
           });
-        } else {
-          storedFilings.push({
-            ...filing,
-            status: 'already_exists'
-          });
+        } catch (downloadError: any) {
+          console.error(`[Dorothy] Failed to download filing: ${downloadError.message}`);
         }
       }
 
@@ -171,9 +199,9 @@ export class Dorothy extends BaseAgent {
         success: true,
         data: {
           company: companyInfo,
-          filingsDownloaded: storedFilings.filter(f => f.status === 'downloaded').length,
-          filingsTotal: storedFilings.length,
-          filings: storedFilings
+          filingsDownloaded: downloadedFilings.length,
+          filingsTotal: filings.length,
+          filings: downloadedFilings  // Return actual filing data, not just metadata
         }
       };
     } catch (error: any) {
@@ -573,30 +601,23 @@ Provide comprehensive financial health assessment:
         console.log(`[Dorothy] - 다운로드한 회사: ${fetchResult.data.company.name}`);
         console.log(`[Dorothy] - CIK: ${fetchResult.data.company.cik}`);
 
-        // Retry getting filings after download
-        console.log(`\n[Dorothy] 4️⃣  다운로드 후 DB 재검색...`);
+        // Use downloaded filings directly (no DB re-check needed)
+        console.log(`\n[Dorothy] 4️⃣  다운로드된 filing 데이터 사용...`);
 
-        if (filingType) {
-          const filing = await this.getLatestFiling(companyTicker, companyCIK, filingType);
-          filings = filing ? [filing] : [];
-          console.log(`[Dorothy] - ${filingType}: ${filing ? '발견 ✓' : '없음 ✗'}`);
-        } else {
-          const annual = await this.getLatestFiling(companyTicker, companyCIK, '10-K');
-          const quarterly = await this.getLatestFiling(companyTicker, companyCIK, '10-Q');
-          filings = [annual, quarterly].filter(Boolean);
-          console.log(`[Dorothy] - 10-K: ${annual ? '발견 ✓' : '없음 ✗'}`);
-          console.log(`[Dorothy] - 10-Q: ${quarterly ? '발견 ✓' : '없음 ✗'}`);
-        }
+        filings = fetchResult.data.filings || [];
 
         if (filings.length === 0) {
-          console.log('[Dorothy] ❌ DB에 여전히 데이터 없음 - 치명적 오류');
+          console.log('[Dorothy] ❌ 다운로드된 filing 없음');
           return {
             success: false,
-            error: `SEC 자료를 다운로드했는데 DB에서 찾을 수 없어. 데이터베이스 연결을 확인해봐.`
+            error: `SEC filing을 다운로드했지만 사용 가능한 데이터가 없어.`
           };
         }
 
-        console.log(`[Dorothy] ✓ DB 재검색 성공: ${filings.length}개 filing 사용 가능`);
+        console.log(`[Dorothy] ✓ ${filings.length}개 filing 메모리에서 사용 가능`);
+        filings.forEach((f: any, idx: number) => {
+          console.log(`[Dorothy]   ${idx + 1}. ${f.filing_type} (${f.filing_date}) - ${f.markdown_content ? 'Markdown ✓' : 'Raw only'}`);
+        });
       }
 
       console.log(`\n[Dorothy] 5️⃣  LLM 분석 시작...`);

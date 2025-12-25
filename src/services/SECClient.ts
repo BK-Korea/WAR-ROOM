@@ -64,31 +64,56 @@ export class SECClient {
 
   /**
    * Get company info by ticker symbol
+   * Uses submissions API - tries ticker as CIK first, then searches
    */
   async getCompanyByTicker(ticker: string): Promise<SECCompanyInfo | null> {
     await this.rateLimit();
 
     try {
-      // SEC maintains a company tickers JSON file
-      const response = await this.client.get('/files/company_tickers.json');
-      const companies = Object.values(response.data) as any[];
+      console.log(`[SEC Client] Looking up ticker: ${ticker}`);
 
-      const company = companies.find((c: any) =>
-        c.ticker.toUpperCase() === ticker.toUpperCase()
-      );
+      // Try direct CIK lookup first (some tickers are numeric)
+      const directLookup = await this.getCompanyByCIK(ticker);
+      if (directLookup) {
+        console.log(`[SEC Client] ✓ Found via direct CIK lookup: ${directLookup.name}`);
+        return directLookup;
+      }
 
-      if (!company) {
+      // Fallback: Use Edgar company search
+      // Note: This searches by company name or ticker
+      const searchUrl = `https://www.sec.gov/cgi-bin/browse-edgar`;
+      const response = await axios.get(searchUrl, {
+        params: {
+          action: 'getcompany',
+          company: ticker,
+          type: '',
+          dateb: '',
+          owner: 'exclude',
+          count: '1',
+          search_text: ''
+        },
+        headers: {
+          'User-Agent': this.userAgent
+        },
+        timeout: 30000
+      });
+
+      // Parse HTML response to extract CIK
+      const html = response.data;
+      const cikMatch = html.match(/CIK=(\d+)/);
+
+      if (!cikMatch) {
+        console.log(`[SEC Client] ✗ No CIK found for ticker: ${ticker}`);
         return null;
       }
 
-      return {
-        cik: String(company.cik_str).padStart(10, '0'),
-        name: company.title,
-        tickers: [company.ticker],
-        exchanges: []
-      };
+      const cik = cikMatch[1].padStart(10, '0');
+      console.log(`[SEC Client] ✓ Found CIK via search: ${cik}`);
+
+      // Now get full company info using CIK
+      return await this.getCompanyByCIK(cik);
     } catch (error) {
-      console.error('Error fetching company by ticker:', error);
+      console.error('[SEC Client] Error fetching company by ticker:', error);
       return null;
     }
   }

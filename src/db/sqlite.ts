@@ -20,28 +20,41 @@ let db: Database.Database | null = null;
 
 /**
  * SQLite 데이터베이스 초기화
+ * Vercel 환경에서는 read-only 또는 실패할 수 있음
  */
-export function initializeSQLite(): Database.Database {
+export function initializeSQLite(): Database.Database | null {
   if (db) {
     return db;
   }
 
-  console.log(`📁 Initializing SQLite database at: ${DB_PATH}`);
+  // Vercel 환경에서는 DB 스킵 (읽기 전용 파일시스템)
+  if (process.env.VERCEL) {
+    console.log('🌐 Vercel environment detected - skipping SQLite (using in-memory mode)');
+    return null;
+  }
 
-  db = new Database(DB_PATH);
+  try {
+    console.log(`📁 Initializing SQLite database at: ${DB_PATH}`);
 
-  // WAL 모드 활성화 (동시성 향상)
-  db.pragma('journal_mode = WAL');
+    db = new Database(DB_PATH);
 
-  // Foreign keys 활성화
-  db.pragma('foreign_keys = ON');
+    // WAL 모드 활성화 (동시성 향상)
+    db.pragma('journal_mode = WAL');
 
-  // 스키마 초기화
-  initializeSchema();
+    // Foreign keys 활성화
+    db.pragma('foreign_keys = ON');
 
-  console.log('✅ SQLite database initialized successfully');
+    // 스키마 초기화
+    initializeSchema();
 
-  return db;
+    console.log('✅ SQLite database initialized successfully');
+
+    return db;
+  } catch (error: any) {
+    console.warn(`⚠️  SQLite initialization failed: ${error.message}`);
+    console.warn('⚠️  Continuing in no-DB mode (data will not be cached)');
+    return null;
+  }
 }
 
 /**
@@ -143,10 +156,19 @@ function initializeSchema(): void {
 /**
  * PostgreSQL 호환 query 함수
  * pg 모듈과 동일한 인터페이스 제공
+ * Vercel 환경에서는 DB 없이 작동 (빈 결과 반환)
  */
 export async function query(text: string, params?: any[]): Promise<{ rows: any[]; rowCount: number }> {
   if (!db) {
     db = initializeSQLite();
+  }
+
+  // DB가 없으면 (Vercel 환경) 빈 결과 반환
+  if (!db) {
+    return {
+      rows: [],
+      rowCount: 0
+    };
   }
 
   try {
@@ -199,7 +221,11 @@ export async function query(text: string, params?: any[]): Promise<{ rows: any[]
       params,
       error
     });
-    throw error;
+    // DB 에러는 로깅만 하고 빈 결과 반환 (계속 작동)
+    return {
+      rows: [],
+      rowCount: 0
+    };
   }
 }
 
@@ -216,8 +242,9 @@ export function closeSQLite(): void {
 
 /**
  * 데이터베이스 인스턴스 가져오기
+ * Vercel 환경에서는 null 반환 가능
  */
-export function getDatabase(): Database.Database {
+export function getDatabase(): Database.Database | null {
   if (!db) {
     db = initializeSQLite();
   }
