@@ -121,13 +121,13 @@ export class Dorothy extends BaseAgent {
 
       // Get or create company in our database
       const companyResult = await query(`
-        INSERT INTO shared.companies (name, industry, website, description)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO companies (name, industry, website, description)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
         RETURNING id
       `, [companyInfo.name, 'Public Company', '', `CIK: ${companyInfo.cik}`]);
 
-      const companyId = companyResult.rows[0].id;
+      const companyId = companyResult.rows[0]?.id || 0;
 
       // Fetch filings
       const filings = await secClient.getFilings(companyInfo.cik, filingType, limit);
@@ -761,50 +761,120 @@ Now extract from the question above:`;
   }
 
   private async getLatestFiling(ticker: string | undefined, cik: string | undefined, filingType: string): Promise<any> {
-    const companyFilter = ticker
-      ? `AND c.name LIKE '%' || (SELECT title FROM shared.companies WHERE name ILIKE $2) || '%'`
-      : cik
-      ? `AND sf.cik = $2`
-      : '';
+    try {
+      let result;
 
-    const result = await query(`
-      SELECT sf.*, c.name as company_name
-      FROM dorothy_finance.sec_filings sf
-      JOIN shared.companies c ON sf.company_id = c.id
-      WHERE sf.filing_type = $1
-      ${companyFilter}
-      ORDER BY sf.filing_date DESC
-      LIMIT 1
-    `, companyFilter ? [filingType, ticker || cik] : [filingType]);
+      if (cik) {
+        result = await query(`
+          SELECT sf.*, c.name as company_name
+          FROM sec_filings sf
+          JOIN companies c ON sf.company_id = c.id
+          WHERE sf.filing_type = ? AND sf.cik = ?
+          ORDER BY sf.filing_date DESC
+          LIMIT 1
+        `, [filingType, cik]);
+      } else if (ticker) {
+        result = await query(`
+          SELECT sf.*, c.name as company_name
+          FROM sec_filings sf
+          JOIN companies c ON sf.company_id = c.id
+          WHERE sf.filing_type = ? AND (c.name LIKE ? OR c.name LIKE ?)
+          ORDER BY sf.filing_date DESC
+          LIMIT 1
+        `, [filingType, `%${ticker}%`, `%${ticker.toUpperCase()}%`]);
+      } else {
+        result = await query(`
+          SELECT sf.*, c.name as company_name
+          FROM sec_filings sf
+          JOIN companies c ON sf.company_id = c.id
+          WHERE sf.filing_type = ?
+          ORDER BY sf.filing_date DESC
+          LIMIT 1
+        `, [filingType]);
+      }
 
-    return result.rows[0] || null;
+      return result.rows[0] || null;
+    } catch (error) {
+      console.error('[Dorothy] getLatestFiling error:', error);
+      return null;
+    }
   }
 
   private async getFilingByDate(ticker: string | undefined, cik: string | undefined, filingType: string, date: string): Promise<any> {
-    const result = await query(`
-      SELECT sf.*, c.name as company_name
-      FROM dorothy_finance.sec_filings sf
-      JOIN shared.companies c ON sf.company_id = c.id
-      WHERE sf.filing_type = $1 AND sf.filing_date = $2
-      ${ticker ? `AND c.name ILIKE '%' || $3 || '%'` : cik ? `AND sf.cik = $3` : ''}
-      LIMIT 1
-    `, [filingType, date, ticker || cik]);
+    try {
+      let result;
 
-    return result.rows[0] || null;
+      if (cik) {
+        result = await query(`
+          SELECT sf.*, c.name as company_name
+          FROM sec_filings sf
+          JOIN companies c ON sf.company_id = c.id
+          WHERE sf.filing_type = ? AND sf.filing_date = ? AND sf.cik = ?
+          LIMIT 1
+        `, [filingType, date, cik]);
+      } else if (ticker) {
+        result = await query(`
+          SELECT sf.*, c.name as company_name
+          FROM sec_filings sf
+          JOIN companies c ON sf.company_id = c.id
+          WHERE sf.filing_type = ? AND sf.filing_date = ? AND c.name LIKE ?
+          LIMIT 1
+        `, [filingType, date, `%${ticker}%`]);
+      } else {
+        result = await query(`
+          SELECT sf.*, c.name as company_name
+          FROM sec_filings sf
+          JOIN companies c ON sf.company_id = c.id
+          WHERE sf.filing_type = ? AND sf.filing_date = ?
+          LIMIT 1
+        `, [filingType, date]);
+      }
+
+      return result.rows[0] || null;
+    } catch (error) {
+      console.error('[Dorothy] getFilingByDate error:', error);
+      return null;
+    }
   }
 
   private async getRecentFilings(ticker: string | undefined, cik: string | undefined, filingType: string, limit: number): Promise<any[]> {
-    const result = await query(`
-      SELECT sf.*, c.name as company_name
-      FROM dorothy_finance.sec_filings sf
-      JOIN shared.companies c ON sf.company_id = c.id
-      WHERE sf.filing_type = $1
-      ${ticker ? `AND c.name ILIKE '%' || $2 || '%'` : cik ? `AND sf.cik = $2` : ''}
-      ORDER BY sf.filing_date DESC
-      LIMIT $${ticker || cik ? '3' : '2'}
-    `, ticker || cik ? [filingType, ticker || cik, limit] : [filingType, limit]);
+    try {
+      let result;
 
-    return result.rows;
+      if (cik) {
+        result = await query(`
+          SELECT sf.*, c.name as company_name
+          FROM sec_filings sf
+          JOIN companies c ON sf.company_id = c.id
+          WHERE sf.filing_type = ? AND sf.cik = ?
+          ORDER BY sf.filing_date DESC
+          LIMIT ?
+        `, [filingType, cik, limit]);
+      } else if (ticker) {
+        result = await query(`
+          SELECT sf.*, c.name as company_name
+          FROM sec_filings sf
+          JOIN companies c ON sf.company_id = c.id
+          WHERE sf.filing_type = ? AND c.name LIKE ?
+          ORDER BY sf.filing_date DESC
+          LIMIT ?
+        `, [filingType, `%${ticker}%`, limit]);
+      } else {
+        result = await query(`
+          SELECT sf.*, c.name as company_name
+          FROM sec_filings sf
+          JOIN companies c ON sf.company_id = c.id
+          WHERE sf.filing_type = ?
+          ORDER BY sf.filing_date DESC
+          LIMIT ?
+        `, [filingType, limit]);
+      }
+
+      return result.rows;
+    } catch (error) {
+      console.error('[Dorothy] getRecentFilings error:', error);
+      return [];
+    }
   }
 
   private truncateContent(content: string, maxChars: number): string {

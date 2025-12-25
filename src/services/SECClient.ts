@@ -240,11 +240,11 @@ export class SECClient {
     }
 
     const result = await query(`
-      INSERT INTO dorothy_finance.sec_filings (
+      INSERT INTO sec_filings (
         company_id, cik, filing_type, filing_date, report_date,
         accession_number, file_url, raw_content, markdown_content, conversion_status
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (accession_number) DO UPDATE
       SET raw_content = EXCLUDED.raw_content,
           markdown_content = EXCLUDED.markdown_content,
@@ -264,7 +264,7 @@ export class SECClient {
       conversionStatus
     ]);
 
-    return result.rows[0].id;
+    return result.rows[0]?.id || 0;
   }
 
   /**
@@ -297,8 +297,8 @@ export class SECClient {
    */
   async filingExists(accessionNumber: string): Promise<boolean> {
     const result = await query(`
-      SELECT id FROM dorothy_finance.sec_filings
-      WHERE accession_number = $1
+      SELECT id FROM sec_filings
+      WHERE accession_number = ?
     `, [accessionNumber]);
 
     return result.rowCount > 0;

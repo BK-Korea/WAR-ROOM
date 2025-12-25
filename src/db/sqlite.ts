@@ -88,7 +88,10 @@ function initializeSchema(): void {
       accession_number TEXT NOT NULL UNIQUE,
       file_url TEXT,
       raw_content TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      markdown_content TEXT,
+      conversion_status TEXT DEFAULT 'pending',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE INDEX IF NOT EXISTS idx_sec_filings_company ON sec_filings(company_id);
