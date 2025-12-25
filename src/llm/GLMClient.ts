@@ -80,6 +80,8 @@ export class GLMClient {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
+        console.log(`[GLM API] Attempt ${attempt}/${maxRetries} - Model: ${params.model || this.defaultModel}`);
+
         const response = await this.client.post<GLMResponse>('/chat/completions', {
           model: params.model || this.defaultModel,
           messages: params.messages,
@@ -89,17 +91,32 @@ export class GLMClient {
           stream: false
         });
 
+        // 성공 - Rate limit 헤더 로깅
+        const headers = response.headers;
+        console.log(`[GLM API] ✅ Success - Tokens: ${response.data.usage.total_tokens}`);
+        if (headers['x-ratelimit-limit']) {
+          console.log(`[GLM API] Rate Limit: ${headers['x-ratelimit-remaining']}/${headers['x-ratelimit-limit']}, Reset: ${headers['x-ratelimit-reset']}`);
+        }
+
         return response.data.choices[0].message.content;
       } catch (error: any) {
         lastError = error;
         const status = error.response?.status;
+        const headers = error.response?.headers || {};
+
+        // Rate limit 정보 로깅
+        console.error(`[GLM API] ❌ Error ${status} (attempt ${attempt}/${maxRetries})`);
+        if (headers['x-ratelimit-limit']) {
+          console.error(`[GLM API] Rate Limit Info: ${headers['x-ratelimit-remaining']}/${headers['x-ratelimit-limit']}, Reset: ${headers['x-ratelimit-reset']}`);
+        }
+        console.error(`[GLM API] Error details:`, error.response?.data);
 
         // 429: Rate Limit - 재시도
         if (status === 429) {
-          const retryAfter = error.response?.headers['retry-after'];
+          const retryAfter = headers['retry-after'] || headers['x-ratelimit-reset'];
           const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : Math.pow(2, attempt) * 1000;
 
-          console.warn(`⚠️  Rate limit hit (attempt ${attempt}/${maxRetries}). Waiting ${waitTime/1000}s...`);
+          console.warn(`⚠️  Rate limit hit. Waiting ${waitTime/1000}s before retry...`);
 
           if (attempt < maxRetries) {
             await this.sleep(waitTime);
@@ -108,7 +125,6 @@ export class GLMClient {
         }
 
         // 다른 에러는 즉시 throw
-        console.error('GLM API Error:', error.response?.data || error.message);
         break;
       }
     }
