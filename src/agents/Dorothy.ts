@@ -2,7 +2,8 @@ import { BaseAgent } from './BaseAgent';
 import { AgentContext, TaskResult } from '../types/agent';
 import { query } from '../db/connection';
 import { DOROTHY_SYSTEM_PROMPT, DOROTHY_TASK_PROMPTS } from '../prompts/dorothy';
-import { secClient, SECFiling } from '../services/SECClient';
+import { secClient, SECFiling, SECCompanyInfo } from '../services/SECClient';
+import axios from 'axios';
 
 /**
  * Dorothy - CFA-level Financial Analyst (SEC Data Specialist)
@@ -478,28 +479,82 @@ Provide comprehensive financial health assessment:
 
   /**
    * Answer free-form questions using ONLY SEC data
+   * Auto-downloads SEC filings if not available in DB
    */
   private async answerQuestion(params: any, context: AgentContext): Promise<TaskResult> {
     const { ticker, cik, question, filingType } = params;
 
     try {
+      // Extract company info from question if not provided
+      let companyTicker = ticker;
+      let companyCIK = cik;
+
+      if (!companyTicker && !companyCIK) {
+        const extractedInfo = await this.extractCompanyFromQuestion(question);
+        if (extractedInfo) {
+          companyTicker = extractedInfo.ticker;
+          companyCIK = extractedInfo.cik;
+        }
+      }
+
+      if (!companyTicker && !companyCIK) {
+        return {
+          success: false,
+          error: '질문에서 회사명이나 티커를 찾을 수 없어. 회사명을 명확하게 알려줘.'
+        };
+      }
+
       // Get relevant filings
       let filings;
       if (filingType) {
-        const filing = await this.getLatestFiling(ticker, cik, filingType);
+        const filing = await this.getLatestFiling(companyTicker, companyCIK, filingType);
         filings = filing ? [filing] : [];
       } else {
         // Get both 10-K and 10-Q
-        const annual = await this.getLatestFiling(ticker, cik, '10-K');
-        const quarterly = await this.getLatestFiling(ticker, cik, '10-Q');
+        const annual = await this.getLatestFiling(companyTicker, companyCIK, '10-K');
+        const quarterly = await this.getLatestFiling(companyTicker, companyCIK, '10-Q');
         filings = [annual, quarterly].filter(Boolean);
       }
 
+      // Auto-download SEC data if not available
       if (filings.length === 0) {
-        return {
-          success: false,
-          error: 'No SEC filings available. Use fetch_sec_data first to download filings.'
-        };
+        console.log(`[Dorothy] No SEC data found. Auto-downloading for ${companyTicker || companyCIK}...`);
+
+        const fetchResult = await this.fetchSECData(
+          {
+            ticker: companyTicker,
+            cik: companyCIK,
+            filingType: filingType || undefined,
+            limit: 3
+          },
+          context
+        );
+
+        if (!fetchResult.success) {
+          return {
+            success: false,
+            error: `SEC 자료를 찾을 수 없어: ${fetchResult.error}`
+          };
+        }
+
+        // Retry getting filings after download
+        if (filingType) {
+          const filing = await this.getLatestFiling(companyTicker, companyCIK, filingType);
+          filings = filing ? [filing] : [];
+        } else {
+          const annual = await this.getLatestFiling(companyTicker, companyCIK, '10-K');
+          const quarterly = await this.getLatestFiling(companyTicker, companyCIK, '10-Q');
+          filings = [annual, quarterly].filter(Boolean);
+        }
+
+        if (filings.length === 0) {
+          return {
+            success: false,
+            error: `SEC 자료를 다운로드했는데 DB에서 찾을 수 없어. 데이터베이스 연결을 확인해봐.`
+          };
+        }
+
+        console.log(`[Dorothy] ✅ Auto-downloaded ${fetchResult.data.filingsDownloaded} SEC filings`);
       }
 
       const answerPrompt = `QUESTION: ${question}
@@ -590,6 +645,120 @@ Cite specific sections and quote exact numbers.`;
   }
 
   // Helper methods
+
+  /**
+   * Extract company name/ticker from natural language question using LLM
+   */
+  private async extractCompanyFromQuestion(question: string): Promise<{ ticker?: string; cik?: string; companyName?: string } | null> {
+    try {
+      const extractPrompt = `Extract the company name or stock ticker from this question.
+
+QUESTION: ${question}
+
+Response format (JSON only, no explanation):
+{
+  "companyName": "Full company name if mentioned",
+  "ticker": "Stock ticker symbol if mentioned or can be inferred",
+  "cik": "CIK number if mentioned"
+}
+
+If no company is mentioned, respond with: {"companyName": null, "ticker": null, "cik": null}
+
+Examples:
+- "Vertical Aerospace의 재무 현황은?" → {"companyName": "Vertical Aerospace", "ticker": "EVTL", "cik": null}
+- "AAPL 주가는?" → {"companyName": "Apple Inc", "ticker": "AAPL", "cik": null}
+- "Tesla의 burn rate는?" → {"companyName": "Tesla", "ticker": "TSLA", "cik": null}
+
+Now extract from the question above:`;
+
+      const response = await this.callLLM(extractPrompt, 0.1); // Very low temperature for precision
+
+      // Parse JSON response
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.warn('[Dorothy] Failed to extract company info - no JSON found in response');
+        return null;
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      // If ticker found, try to get company info from SEC
+      if (parsed.ticker) {
+        const companyInfo = await secClient.getCompanyByTicker(parsed.ticker);
+        if (companyInfo) {
+          return {
+            ticker: parsed.ticker,
+            cik: companyInfo.cik,
+            companyName: companyInfo.name
+          };
+        }
+      }
+
+      // If company name found, try fuzzy search
+      if (parsed.companyName && !parsed.ticker) {
+        // Try to find ticker by company name
+        const companyInfo = await this.searchCompanyByName(parsed.companyName);
+        if (companyInfo) {
+          return {
+            ticker: companyInfo.tickers[0],
+            cik: companyInfo.cik,
+            companyName: companyInfo.name
+          };
+        }
+      }
+
+      // Return whatever we got
+      if (parsed.companyName || parsed.ticker || parsed.cik) {
+        return {
+          ticker: parsed.ticker || undefined,
+          cik: parsed.cik || undefined,
+          companyName: parsed.companyName || undefined
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[Dorothy] Error extracting company from question:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Search for company by name in SEC database
+   */
+  private async searchCompanyByName(companyName: string): Promise<SECCompanyInfo | null> {
+    try {
+      // SEC provides a ticker file we can search
+      const response = await axios.get('https://www.sec.gov/files/company_tickers.json', {
+        headers: {
+          'User-Agent': 'WAR-ROOM Dorothy dorothy@war-room.ai'
+        }
+      });
+
+      const companies = Object.values(response.data) as any[];
+      const searchLower = companyName.toLowerCase();
+
+      // Fuzzy match - look for company name containing search term
+      const match = companies.find((c: any) =>
+        c.title.toLowerCase().includes(searchLower) ||
+        searchLower.includes(c.title.toLowerCase())
+      );
+
+      if (match) {
+        return {
+          cik: String(match.cik_str).padStart(10, '0'),
+          name: match.title,
+          tickers: [match.ticker],
+          exchanges: []
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[Dorothy] Error searching company by name:', error);
+      return null;
+    }
+  }
 
   private async getLatestFiling(ticker: string | undefined, cik: string | undefined, filingType: string): Promise<any> {
     const companyFilter = ticker

@@ -23,15 +23,18 @@ function selectAgents(message: string): string[] {
     '재무', '주식', 'sec', '10-k', '10-q', '재무제표', '손익계산서', '대차대조표',
     '현금흐름', '매출', '수익', '비용', '자산', '부채', '자본', '주가', 'eps',
     'revenue', 'profit', 'cash', 'financial', 'quarterly', 'annual', 'filing',
-    '분기', '연간', '실적', 'ebitda', 'valuation', '가치평가', '배당'
+    '분기', '연간', '실적', 'ebitda', 'valuation', '가치평가', '배당', 'burn rate',
+    '소진율', '런웨이', 'runway', 'liquidity', '유동성'
   ];
 
-  // Alice (전략 컨설턴트) - 전략, 시장, 경쟁, M&A 관련
+  // Alice (전략 컨설턴트) - 전략, 시장, 경쟁, M&A, 비즈니스 모델 관련
   const aliceKeywords = [
     '전략', '시장', '경쟁', 'm&a', '인수', '합병', '확장', '성장', '진출',
-    '포지셔닝', '차별화', '경쟁우위', '시장점유율', '사업모델', '비즈니스',
+    '포지셔닝', '차별화', '경쟁우위', '시장점유율', '사업모델', '비즈니스모델',
+    'business model', 'business', 'model', '비즈니스', '모델',
     'strategy', 'market', 'competition', 'expansion', 'growth', 'positioning',
-    '리스크', '기회', '위협', '강점', '약점', 'swot', '포트폴리오'
+    '리스크', '기회', '위협', '강점', '약점', 'swot', '포트폴리오',
+    '분석', 'analysis', '현황', 'status', 'overview', '개요'
   ];
 
   // Dorothy 관련성 체크
@@ -81,19 +84,17 @@ export async function POST(req: NextRequest) {
         let content: string;
 
         if (agentName === 'Dorothy') {
+          // Use answer_question which auto-downloads SEC data if needed
           result = await warRoom.executeTask(
             'Dorothy',
-            'analyze_text',
+            'answer_question',
             {
-              company: 'User Query',
-              filingType: 'Direct Question',
-              filingDate: new Date().toISOString(),
-              text: message,
               question: message,
+              // ticker and cik will be auto-extracted from the question
             },
             context
           );
-          content = result.success ? (result.data.analysis || '분석 결과가 없어') : `❌ ${result.error}`;
+          content = result.success ? (result.data.answer || '분석 결과가 없어') : `❌ ${result.error}`;
 
           if (result.success) {
             responses.push({
