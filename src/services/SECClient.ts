@@ -63,39 +63,39 @@ export class SECClient {
   }
 
   /**
-   * Get company info by ticker symbol
-   * Uses Edgar search to find company by ticker
+   * Get company info by ticker symbol or company name
+   * Uses Edgar search to find company
    */
   async getCompanyByTicker(ticker: string): Promise<SECCompanyInfo | null> {
     await this.rateLimit();
 
-    console.log(`[SEC Client] Looking up ticker: ${ticker}`);
+    console.log(`[SEC Client] Looking up ticker/company: ${ticker}`);
 
-    // Try direct CIK lookup first (some tickers are numeric)
-    try {
-      const directLookup = await this.getCompanyByCIK(ticker);
-      if (directLookup) {
-        console.log(`[SEC Client] ✓ Found via direct CIK lookup: ${directLookup.name}`);
-        return directLookup;
+    // Try direct CIK lookup first (some tickers are numeric CIKs)
+    if (/^\d+$/.test(ticker)) {
+      try {
+        const directLookup = await this.getCompanyByCIK(ticker);
+        if (directLookup) {
+          console.log(`[SEC Client] ✓ Found via direct CIK lookup: ${directLookup.name}`);
+          return directLookup;
+        }
+      } catch (directError) {
+        console.log(`[SEC Client] Direct CIK lookup failed, trying Edgar search...`);
       }
-    } catch (directError) {
-      // Expected for non-numeric tickers, continue to Edgar search
-      console.log(`[SEC Client] Direct CIK lookup failed (expected for ticker), trying Edgar search...`);
     }
 
-    // Use Edgar company search
+    // Use Edgar company search (works for both ticker and company name)
     try {
-      console.log(`[SEC Client] Searching Edgar for ticker: ${ticker}`);
+      console.log(`[SEC Client] Searching Edgar for: ${ticker}`);
       const searchUrl = `https://www.sec.gov/cgi-bin/browse-edgar`;
       const response = await axios.get(searchUrl, {
         params: {
           action: 'getcompany',
-          company: ticker,
+          company: ticker,  // Edgar accepts both ticker and company name
           type: '',
           dateb: '',
           owner: 'exclude',
-          count: '1',
-          search_text: ''
+          count: '10'  // Get multiple results to find best match
         },
         headers: {
           'User-Agent': this.userAgent
@@ -105,10 +105,18 @@ export class SECClient {
 
       // Parse HTML response to extract CIK
       const html = response.data;
-      const cikMatch = html.match(/CIK=(\d+)/);
+
+      // Try multiple patterns to extract CIK
+      let cikMatch = html.match(/CIK=0*(\d+)/);  // Remove leading zeros
+
+      if (!cikMatch) {
+        // Try alternative pattern
+        cikMatch = html.match(/\/cik\/(\d+)\//);
+      }
 
       if (!cikMatch) {
         console.log(`[SEC Client] ✗ No CIK found in Edgar search for: ${ticker}`);
+        console.log(`[SEC Client] HTML preview:`, html.substring(0, 500));
         return null;
       }
 

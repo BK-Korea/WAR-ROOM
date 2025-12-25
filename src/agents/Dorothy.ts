@@ -522,6 +522,8 @@ Provide comprehensive financial health assessment:
       let companyTicker = ticker;
       let companyCIK = cik;
 
+      let companyName = '';
+
       if (!companyTicker && !companyCIK) {
         console.log('\n[Dorothy] 1️⃣  회사명 추출 중...');
         console.log('[Dorothy] - LLM을 사용하여 질문에서 회사 정보 추출');
@@ -530,8 +532,9 @@ Provide comprehensive financial health assessment:
         if (extractedInfo) {
           companyTicker = extractedInfo.ticker;
           companyCIK = extractedInfo.cik;
+          companyName = extractedInfo.companyName || '';
           console.log(`[Dorothy] ✓ 추출 완료:`);
-          console.log(`[Dorothy]   - 회사명: ${extractedInfo.companyName || 'N/A'}`);
+          console.log(`[Dorothy]   - 회사명: ${companyName || 'N/A'}`);
           console.log(`[Dorothy]   - Ticker: ${companyTicker || 'N/A'}`);
           console.log(`[Dorothy]   - CIK: ${companyCIK || 'N/A'}`);
         } else {
@@ -543,13 +546,18 @@ Provide comprehensive financial health assessment:
         console.log(`[Dorothy]   - CIK: ${companyCIK || 'N/A'}`);
       }
 
-      if (!companyTicker && !companyCIK) {
+      // Use company name as fallback if ticker/CIK not found
+      const searchTerm = companyTicker || companyCIK || companyName;
+
+      if (!searchTerm) {
         console.log('[Dorothy] ❌ 회사 식별 실패 - 종료');
         return {
           success: false,
           error: '질문에서 회사명이나 티커를 찾을 수 없어. 회사명을 명확하게 알려줘.'
         };
       }
+
+      console.log(`[Dorothy] - 검색어: ${searchTerm}`);
 
       // Get relevant filings
       console.log(`\n[Dorothy] 2️⃣  DB에서 SEC filing 검색 중...`);
@@ -581,7 +589,7 @@ Provide comprehensive financial health assessment:
 
         const fetchResult = await this.fetchSECData(
           {
-            ticker: companyTicker,
+            ticker: searchTerm,  // Use searchTerm which includes company name fallback
             cik: companyCIK,
             filingType: filingType || undefined,
             limit: 3
