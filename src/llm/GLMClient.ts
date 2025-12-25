@@ -46,7 +46,7 @@ export class GLMClient {
   constructor() {
     this.apiKey = process.env.GLM_API_KEY || '';
     this.baseURL = process.env.GLM_API_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4';
-    this.defaultModel = 'glm-4-plus'; // GLM-4.7 latest model
+    this.defaultModel = process.env.GLM_MODEL || 'glm-4-plus'; // Default: glm-4-plus (Max Plan)
     this.mockMode = process.env.GLM_MOCK_MODE === 'true';
 
     if (!this.apiKey && !this.mockMode) {
@@ -55,6 +55,8 @@ export class GLMClient {
 
     if (this.mockMode) {
       console.log('🧪 GLM Client running in MOCK MODE (no API calls)');
+    } else {
+      console.log(`🤖 GLM Client using model: ${this.defaultModel}`);
     }
 
     this.client = axios.create({
