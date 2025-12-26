@@ -184,8 +184,44 @@ export class Helena extends BaseAgent {
       if (!forceRefresh) {
         const existing = await getCompanyMetadata(ticker);
         if (existing && existing.filings_count > 0) {
-          progress(`${ticker} 데이터 이미 존재 (${existing.filings_count} filings). 스킵...`);
-          console.log(`[Helena] ℹ️ Data already exists for ${ticker}. Use forceRefresh=true to re-process.`);
+
+          // ============================================
+          // CRITICAL: XBRL metrics가 0개면 재처리 필요
+          // ============================================
+          if (existing.metrics_count === 0) {
+            progress(`${ticker} 데이터는 있지만 XBRL metrics 0개. 재처리 필요...`);
+            console.log(`[Helena] ⚠️ ${ticker} has ${existing.filings_count} filings but 0 XBRL metrics - needs reprocessing`);
+
+            return {
+              success: false,
+              error: `⚠️ ${ticker} 데이터는 있지만 XBRL 파싱 실패했어\n\n` +
+                     `**현재 상태:**\n` +
+                     `- Filings: ${existing.filings_count}개 ✅\n` +
+                     `- XBRL Metrics: 0개 ❌ (이전 parser 실패)\n` +
+                     `- 마지막 처리: ${existing.last_processed_at || 'N/A'}\n\n` +
+                     `**🔄 재처리가 필요해:**\n` +
+                     `새로운 professional XBRL parser (xml2js 기반)로 재처리하면\n` +
+                     `정확한 분기별 매출, 순이익 등 재무 데이터를 추출할 수 있어.\n\n` +
+                     `💡 **재처리 방법:**\n` +
+                     `"@Helena ${ticker} 데이터 준비해줘 (forceRefresh)"\n\n` +
+                     `또는 "네, 재처리해줘" 라고 답하면 바로 시작할게! 🚀`,
+              metadata: {
+                needsRefresh: true,
+                reason: 'xbrl_parsing_failed',
+                existing: {
+                  filings: existing.filings_count,
+                  metrics: existing.metrics_count,
+                  lastUpdate: existing.last_processed_at
+                }
+              }
+            };
+          }
+
+          // ============================================
+          // XBRL metrics가 있으면 정상 완료 상태
+          // ============================================
+          progress(`${ticker} 데이터 이미 완료 (${existing.filings_count} filings, ${existing.metrics_count} metrics)`);
+          console.log(`[Helena] ✓ ${ticker} data already complete - ${existing.filings_count} filings, ${existing.metrics_count} metrics`);
 
           return {
             success: true,
@@ -193,10 +229,14 @@ export class Helena extends BaseAgent {
               company: existing.company_name,
               ticker: existing.ticker,
               cik: existing.cik,
-              filingsProcessed: 0,
-              metricsExtracted: 0,
-              sectionsExtracted: 0,
-              message: 'Data already exists. Use forceRefresh=true to re-process.',
+              message: `✅ ${ticker} 데이터 이미 준비되어 있어!\n\n` +
+                       `**현재 상태:**\n` +
+                       `- Filings: ${existing.filings_count}개 📄\n` +
+                       `- XBRL Metrics: ${existing.metrics_count}개 💎\n` +
+                       `- 마지막 업데이트: ${existing.last_processed_at || 'N/A'}\n\n` +
+                       `Dorothy가 바로 사용할 수 있어. 질문해봐!\n\n` +
+                       `💡 최신 데이터로 업데이트하려면:\n` +
+                       `"@Helena ${ticker} 데이터 준비해줘 (forceRefresh)"`,
               existing: {
                 filings: existing.filings_count,
                 metrics: existing.metrics_count,
