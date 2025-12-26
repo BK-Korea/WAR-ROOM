@@ -143,9 +143,10 @@ export class Dorothy extends BaseAgent {
       } else if (filingType) {
         typesToFetch = [filingType];
       } else {
-        // Default: fetch all major financial filing types
-        // 10-K/10-Q: US companies, 20-F: foreign companies, 6-K: foreign current reports, 8-K: current reports
-        typesToFetch = ['10-K', '10-Q', '20-F', '6-K', '8-K'];
+        // Default: fetch only financial statement filings (exclude 8-K event reports and 6-K)
+        // 10-K: US annual reports, 10-Q: US quarterly reports, 20-F: foreign annual reports
+        // Note: 8-K (event reports) and 6-K (foreign current) excluded to reduce noise and stay within timeout
+        typesToFetch = ['10-K', '10-Q', '20-F'];
       }
 
       console.log(`[Dorothy] 📊 Fetching SEC filings:`);
@@ -614,9 +615,9 @@ Provide comprehensive financial health assessment:
         progress('SEC Edgar에서 filing 다운로드 중...');
         console.log(`\n[Dorothy] 3️⃣  SEC Edgar에서 자동 다운로드 시작...`);
         console.log(`[Dorothy] - 대상: ${companyTicker || companyCIK || companyName}`);
-        console.log(`[Dorothy] - Filing 타입: ${filingType || 'all (10-K, 10-Q, 20-F, 6-K, 8-K)'}`);
+        console.log(`[Dorothy] - Filing 타입: ${filingType || 'financial statements (10-K, 10-Q, 20-F)'}`);
         console.log(`[Dorothy] - 연도: ${extractedYear || 'all'}`);
-        console.log(`[Dorothy] - 다운로드 limit: 20`);
+        console.log(`[Dorothy] - 다운로드 limit: 5`);
 
         // Try ticker first, then fallback to company name
         let fetchResult = await this.fetchSECData(
@@ -625,7 +626,7 @@ Provide comprehensive financial health assessment:
             cik: companyCIK,
             filingType: filingType || undefined,  // If not specified, fetchSECData will use all types
             year: extractedYear,
-            limit: 20  // Increased limit to get more filings
+            limit: 5  // Balanced limit - enough data without Vercel timeout
           },
           context
         );
