@@ -21,6 +21,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@supabase/supabase-js": "^2.89.0",
     "@types/better-sqlite3": "^7.6.13",
     "axios": "^1.6.2",
     "better-sqlite3": "^12.5.0",

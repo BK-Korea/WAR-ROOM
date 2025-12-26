@@ -7,6 +7,7 @@ import { Wendy } from '../agents/Wendy';
 import { Aurora } from '../agents/Aurora';
 import { Elsa } from '../agents/Elsa';
 import { Amy } from '../agents/Amy';
+import { Helena } from '../agents/Helena';
 
 export class WarRoom {
   private agents: Map<string, Agent>;
@@ -31,6 +32,7 @@ export class WarRoom {
     const aurora = new Aurora();
     const elsa = new Elsa();
     const amy = new Amy();
+    const helena = new Helena();
 
     // Register agents
     this.agents.set('Alice', alice);
@@ -41,6 +43,7 @@ export class WarRoom {
     this.agents.set('Aurora', aurora);
     this.agents.set('Elsa', elsa);
     this.agents.set('Amy', amy);
+    this.agents.set('Helena', helena);
 
     // Initialize all agents
     for (const [name, agent] of this.agents) {
