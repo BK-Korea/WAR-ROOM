@@ -688,6 +688,15 @@ Provide comprehensive financial health assessment:
         console.log(`[Dorothy]      - Content length: ${(f.markdown_content || f.raw_content)?.length || 0} chars`);
       });
 
+      // Calculate optimal content length per filing based on total count
+      // Goal: Keep total tokens under 100k (roughly 400k chars)
+      const charsPerFiling = Math.min(
+        100000,  // Max per filing
+        Math.floor(400000 / filings.length)  // Dynamic based on filing count
+      );
+
+      console.log(`[Dorothy] - Chars per filing: ${charsPerFiling} (${filings.length} filings total)`);
+
       const answerPrompt = `QUESTION: ${question}
 
 COMPANY: ${filings[0].company_name}
@@ -696,10 +705,14 @@ AVAILABLE SEC FILINGS:
 ${filings.map((f: any) => `- ${f.filing_type} filed ${f.filing_date}`).join('\n')}
 
 SEC FILING DATA:
-${filings.map((f: any) => `
+${filings.map((f: any, idx: number) => {
+  const content = f.markdown_content || f.raw_content;
+  const truncated = this.truncateContent(content, charsPerFiling);
+  return `
 === ${f.filing_type} (${f.filing_date}) ===
-${this.truncateContent(f.markdown_content || f.raw_content, 10000)}
-`).join('\n\n')}
+${truncated}
+`;
+}).join('\n\n')}
 
 ⚠️ CRITICAL RULES - MUST FOLLOW:
 1. Answer using ONLY the SEC filing data provided above
@@ -1058,19 +1071,55 @@ Now extract from the question above:`;
     }
   }
 
+  /**
+   * Smart truncate that tries to preserve financial statement sections
+   */
   private truncateContent(content: string, maxChars: number): string {
     if (content.length <= maxChars) {
       return content;
     }
 
-    // Try to truncate at a reasonable point
-    const truncated = content.substring(0, maxChars);
-    const lastPeriod = truncated.lastIndexOf('.');
+    // Try to find financial statement sections
+    const financialKeywords = [
+      'CONSOLIDATED STATEMENTS',
+      'CONSOLIDATED BALANCE SHEETS',
+      'CONSOLIDATED STATEMENTS OF OPERATIONS',
+      'CONSOLIDATED STATEMENTS OF CASH FLOWS',
+      'FINANCIAL STATEMENTS',
+      'BALANCE SHEET',
+      'INCOME STATEMENT',
+      'CASH FLOW',
+      'Statement of Operations',
+      'Statement of Financial Position'
+    ];
 
-    if (lastPeriod > maxChars * 0.8) {
-      return truncated.substring(0, lastPeriod + 1) + '\n\n[Content truncated for length]';
+    // Find the earliest financial section
+    let financialStart = -1;
+    for (const keyword of financialKeywords) {
+      const idx = content.toUpperCase().indexOf(keyword);
+      if (idx !== -1 && (financialStart === -1 || idx < financialStart)) {
+        financialStart = idx;
+      }
     }
 
-    return truncated + '\n\n[Content truncated for length]';
+    if (financialStart !== -1 && financialStart < content.length * 0.8) {
+      // Found financial section! Prioritize it
+      const beforeFinancial = Math.floor(maxChars * 0.2);  // 20% for intro
+      const financialContent = Math.floor(maxChars * 0.8);  // 80% for financials
+
+      const intro = content.substring(0, Math.min(beforeFinancial, financialStart));
+      const financial = content.substring(financialStart, Math.min(content.length, financialStart + financialContent));
+
+      return intro + '\n\n[...skipped to financial statements...]\n\n' + financial + '\n\n[Content truncated for length]';
+    }
+
+    // No financial section found, use front + back strategy
+    const frontChars = Math.floor(maxChars * 0.6);  // 60% from front
+    const backChars = Math.floor(maxChars * 0.4);   // 40% from back
+
+    const front = content.substring(0, frontChars);
+    const back = content.substring(content.length - backChars);
+
+    return front + '\n\n[...middle section truncated...]\n\n' + back;
   }
 }
