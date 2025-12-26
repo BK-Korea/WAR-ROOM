@@ -690,10 +690,11 @@ Provide comprehensive financial health assessment:
       });
 
       // Calculate optimal content length per filing based on total count
-      // Goal: Keep total tokens under 100k (roughly 400k chars)
+      // Goal: Keep total tokens under 200k (roughly 800k chars)
+      // Increased allocation to capture more financial statement content
       const charsPerFiling = Math.min(
-        100000,  // Max per filing
-        Math.floor(400000 / filings.length)  // Dynamic based on filing count
+        200000,  // Max per filing (doubled for better financial data capture)
+        Math.floor(800000 / filings.length)  // Dynamic based on filing count
       );
 
       console.log(`[Dorothy] - Chars per filing: ${charsPerFiling} (${filings.length} filings total)`);
