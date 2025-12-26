@@ -26,6 +26,10 @@ export interface XBRLFinancial {
   isInstant: boolean;
   contextRef: string;
   decimals?: number;
+  // ENHANCED: Period classification for quarterly vs annual vs YTD filtering
+  periodType?: 'instant' | 'quarterly' | 'ytd' | 'annual' | 'custom';
+  periodLengthMonths?: number | null;
+  hasDimensions?: boolean; // true = segment breakdown, false = consolidated
 }
 
 export interface XBRLParseResult {
@@ -204,9 +208,34 @@ export class XBRLParser {
       const financials = this.extractFacts(xbrl, contexts, units);
       console.log(`[XBRL Parser] Extracted ${financials.length} financial facts`);
 
-      // Determine fiscal year and quarter
-      const fiscalYear = parseInt(filing.filingDate.split('-')[0]);
-      const fiscalQuarter = filing.filingType === '10-Q' ? this.extractQuarter(filing.filingDate) : undefined;
+      // ============================================
+      // CRITICAL: Determine fiscal year and quarter from ACTUAL XBRL periods
+      // NOT from filing date (which can be weeks later)
+      // ============================================
+      let fiscalYear: number;
+      let fiscalQuarter: number | undefined;
+
+      // Find most recent quarterly period
+      const quarterlyFacts = financials.filter(f => f.periodType === 'quarterly');
+
+      if (quarterlyFacts.length > 0) {
+        // Sort by periodEnd descending (most recent first)
+        quarterlyFacts.sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
+        const latestQuarter = quarterlyFacts[0];
+
+        // Extract fiscal year and quarter from periodEnd
+        const periodEnd = new Date(latestQuarter.periodEnd);
+        fiscalYear = periodEnd.getFullYear();
+        fiscalQuarter = this.extractQuarterFromDate(periodEnd);
+
+        console.log(`[XBRL Parser] Fiscal period from XBRL context: ${fiscalYear} Q${fiscalQuarter} (${latestQuarter.periodEnd})`);
+      } else {
+        // Fallback: use filing date
+        fiscalYear = parseInt(filing.filingDate.split('-')[0]);
+        fiscalQuarter = filing.filingType === '10-Q' ? this.extractQuarter(filing.filingDate) : undefined;
+
+        console.log(`[XBRL Parser] Fiscal period from filing date (no quarterly facts): ${fiscalYear}${fiscalQuarter ? ` Q${fiscalQuarter}` : ''}`);
+      }
 
       return {
         cik: filing.cik,
@@ -228,6 +257,7 @@ export class XBRLParser {
 
   /**
    * Extract context information (periods, entities)
+   * ENHANCED: Calculate period length and detect dimensions
    */
   private extractContexts(xbrl: any): Map<string, any> {
     const contexts = new Map();
@@ -238,12 +268,54 @@ export class XBRLParser {
       for (const ctx of contextArray) {
         if (!ctx || !ctx.id) continue;
 
+        const periodStart = ctx.period?.startDate || null;
+        const periodEnd = ctx.period?.endDate || ctx.period?.instant || null;
+        const isInstant = !!ctx.period?.instant;
+
+        // ============================================
+        // CRITICAL: Calculate period length in months
+        // ============================================
+        let periodLengthMonths: number | null = null;
+        let periodType: 'instant' | 'quarterly' | 'ytd' | 'annual' | 'custom' = 'custom';
+
+        if (isInstant) {
+          periodType = 'instant';
+        } else if (periodStart && periodEnd) {
+          const start = new Date(periodStart);
+          const end = new Date(periodEnd);
+          const diffTime = end.getTime() - start.getTime();
+          const diffDays = diffTime / (1000 * 60 * 60 * 24);
+
+          // Calculate months (approximate)
+          periodLengthMonths = Math.round(diffDays / 30);
+
+          // Classify period type
+          if (periodLengthMonths >= 2 && periodLengthMonths <= 4) {
+            periodType = 'quarterly'; // 3개월 (±1 month tolerance)
+          } else if (periodLengthMonths >= 11 && periodLengthMonths <= 13) {
+            periodType = 'annual'; // 12개월
+          } else if (periodLengthMonths >= 5 && periodLengthMonths <= 10) {
+            periodType = 'ytd'; // 6개월, 9개월 등 누적
+          }
+        }
+
+        // ============================================
+        // CRITICAL: Detect dimensions (segment/axis)
+        // ============================================
+        const hasDimensions = !!(
+          ctx.entity?.segment ||
+          ctx.entity?.scenario
+        );
+
         const context = {
           id: ctx.id,
           entity: ctx.entity?.identifier || null,
-          periodStart: ctx.period?.startDate || null,
-          periodEnd: ctx.period?.endDate || ctx.period?.instant || null,
-          isInstant: !!ctx.period?.instant,
+          periodStart,
+          periodEnd,
+          isInstant,
+          periodLengthMonths,
+          periodType,
+          hasDimensions, // true = segment/product breakdown, false = consolidated
         };
 
         contexts.set(ctx.id, context);
@@ -280,9 +352,10 @@ export class XBRLParser {
 
   /**
    * Extract financial facts from XBRL
+   * ENHANCED: Filter for quarterly/annual, consolidated values only
    */
   private extractFacts(xbrl: any, contexts: Map<string, any>, units: Map<string, string>): XBRLFinancial[] {
-    const financials: XBRLFinancial[] = [];
+    const allFacts: XBRLFinancial[] = [];
 
     try {
       // Iterate through all elements looking for US GAAP tags
@@ -311,6 +384,21 @@ export class XBRLParser {
 
           if (!context) continue;
 
+          // ============================================
+          // CRITICAL: Filter out non-quarterly/annual and segmented data
+          // ============================================
+          // Priority 1: Only accept quarterly or annual periods
+          if (context.periodType !== 'quarterly' && context.periodType !== 'annual') {
+            console.log(`[XBRL Parser] ⏭️  Skipping ${metricName} - periodType: ${context.periodType} (need quarterly/annual)`);
+            continue;
+          }
+
+          // Priority 2: Only accept consolidated (no dimensions)
+          if (context.hasDimensions) {
+            console.log(`[XBRL Parser] ⏭️  Skipping ${metricName} - has dimensions (need consolidated)`);
+            continue;
+          }
+
           const numericValue = this.parseValue(textValue);
           if (numericValue === null) continue;
 
@@ -318,7 +406,7 @@ export class XBRLParser {
           const decimals = fact.decimals;
           const scale = this.detectScale(numericValue, decimals);
 
-          financials.push({
+          allFacts.push({
             xbrlTag: `us-gaap:${metricName}`,
             label: this.formatLabel(metricName),
             value: numericValue,
@@ -329,14 +417,59 @@ export class XBRLParser {
             isInstant: context.isInstant,
             contextRef,
             decimals: parseInt(decimals) || undefined,
+            // ENHANCED: Include period classification
+            periodType: context.periodType,
+            periodLengthMonths: context.periodLengthMonths,
+            hasDimensions: context.hasDimensions,
           });
         }
       }
+
+      // ============================================
+      // CRITICAL: Deduplicate facts (same tag + period)
+      // ============================================
+      const deduped = this.deduplicateFacts(allFacts);
+      console.log(`[XBRL Parser] Deduplicated: ${allFacts.length} → ${deduped.length} facts`);
+
+      return deduped;
+
     } catch (error: any) {
       console.error(`[XBRL Parser] Fact extraction failed: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Deduplicate facts - if same tag + period, keep highest quality
+   * Priority: quarterly > annual, later periodEnd > earlier
+   */
+  private deduplicateFacts(facts: XBRLFinancial[]): XBRLFinancial[] {
+    const map = new Map<string, XBRLFinancial>();
+
+    for (const fact of facts) {
+      const key = `${fact.xbrlTag}::${fact.periodEnd}`;
+      const existing = map.get(key);
+
+      if (!existing) {
+        map.set(key, fact);
+        continue;
+      }
+
+      // Priority 1: Prefer quarterly over annual (for 10-K containing both)
+      if (fact.periodType === 'quarterly' && existing.periodType === 'annual') {
+        map.set(key, fact);
+        console.log(`[XBRL Parser] 🔄 Replaced annual with quarterly: ${fact.xbrlTag} @ ${fact.periodEnd}`);
+        continue;
+      }
+
+      // Priority 2: If both same type, keep later periodEnd (more recent amendment)
+      if (fact.periodEnd > existing.periodEnd) {
+        map.set(key, fact);
+        console.log(`[XBRL Parser] 🔄 Replaced older periodEnd: ${fact.xbrlTag} ${existing.periodEnd} → ${fact.periodEnd}`);
+      }
     }
 
-    return financials;
+    return Array.from(map.values());
   }
 
   /**
@@ -393,10 +526,23 @@ export class XBRLParser {
   }
 
   /**
-   * Extract quarter from filing date
+   * Extract quarter from filing date (legacy)
    */
   private extractQuarter(filingDate: string): number {
     const month = parseInt(filingDate.split('-')[1]);
+
+    if (month >= 1 && month <= 3) return 1;
+    if (month >= 4 && month <= 6) return 2;
+    if (month >= 7 && month <= 9) return 3;
+    return 4;
+  }
+
+  /**
+   * Extract quarter from periodEnd Date object
+   * Uses month of period end to determine fiscal quarter
+   */
+  private extractQuarterFromDate(date: Date): number {
+    const month = date.getMonth() + 1; // getMonth() is 0-indexed
 
     if (month >= 1 && month <= 3) return 1;
     if (month >= 4 && month <= 6) return 2;
