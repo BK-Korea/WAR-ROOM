@@ -18,6 +18,29 @@ function selectAgents(message: string): string[] {
   const lowerMessage = message.toLowerCase();
   const agents: string[] = [];
 
+  // ============================================
+  // Priority 1: @mention 파싱
+  // ============================================
+  const mentionMatch = message.match(/@([A-Za-z]+)/i);
+  if (mentionMatch) {
+    const mentionedAgent = mentionMatch[1];
+    const normalizedName = mentionedAgent.charAt(0).toUpperCase() + mentionedAgent.slice(1).toLowerCase();
+
+    // Valid agent names
+    const validAgents = ['Alice', 'Dorothy', 'Belle', 'Anna', 'Wendy', 'Aurora', 'Elsa', 'Amy', 'Helena'];
+
+    if (validAgents.includes(normalizedName)) {
+      console.log(`[Agent Selection] ✅ @mention detected: ${normalizedName}`);
+      return [normalizedName];
+    } else {
+      console.warn(`[Agent Selection] ⚠️ Unknown agent mentioned: @${mentionedAgent}`);
+    }
+  }
+
+  // ============================================
+  // Priority 2: 키워드 매칭 (fallback)
+  // ============================================
+
   // Dorothy (재무 분석가) - 재무, SEC, 주식, 재무제표 관련
   const dorothyKeywords = [
     '재무', '주식', 'sec', '10-k', '10-q', '재무제표', '손익계산서', '대차대조표',
@@ -33,8 +56,13 @@ function selectAgents(message: string): string[] {
     '포지셔닝', '차별화', '경쟁우위', '시장점유율', '사업모델', '비즈니스모델',
     'business model', 'business', 'model', '비즈니스', '모델',
     'strategy', 'market', 'competition', 'expansion', 'growth', 'positioning',
-    '리스크', '기회', '위협', '강점', '약점', 'swot', '포트폴리오',
-    '분석', 'analysis', '현황', 'status', 'overview', '개요'
+    '리스크', '기회', '위협', '강점', '약점', 'swot', '포트폴리오'
+  ];
+
+  // Helena (SEC Data Curator) - 데이터 준비, 수집, 전처리 관련
+  const helenaKeywords = [
+    '데이터 준비', '데이터 수집', 'prepare data', '전처리', 'preprocessing',
+    'filing 다운로드', 'download filing', 'xbrl', '데이터베이스', 'database'
   ];
 
   // Dorothy 관련성 체크
@@ -42,16 +70,23 @@ function selectAgents(message: string): string[] {
     agents.push('Dorothy');
   }
 
+  // Helena 관련성 체크
+  if (helenaKeywords.some(keyword => lowerMessage.includes(keyword))) {
+    agents.push('Helena');
+  }
+
   // Alice 관련성 체크
   if (aliceKeywords.some(keyword => lowerMessage.includes(keyword))) {
     agents.push('Alice');
   }
 
-  // 키워드 매칭 안 되면 둘 다 답변 (일반적인 질문)
+  // 키워드 매칭 안 되면 Alice 기본 (전략 컨설턴트)
   if (agents.length === 0) {
-    agents.push('Dorothy', 'Alice');
+    console.log('[Agent Selection] ℹ️ No keywords matched - defaulting to Alice');
+    agents.push('Alice');
   }
 
+  console.log(`[Agent Selection] 📊 Keyword matching result: ${agents.join(', ')}`);
   return agents;
 }
 
@@ -142,6 +177,69 @@ export async function POST(req: NextRequest) {
                     totalResponses: responses.length,
                     contentPreview: content.substring(0, 100) + '...'
                   });
+                }
+              } else if (agentName === 'Helena') {
+                sendEvent('status', { agent: 'Helena', message: 'Helena (SEC Data Curator) 시작...' });
+                console.log('\n[Helena] ▶ 시작: SEC 데이터 준비 및 큐레이션');
+                console.log('[Helena] 질문:', message);
+
+                // Extract ticker from message (simple pattern matching)
+                const tickerMatch = message.match(/([A-Z]{2,5})(?:\s|$)/);
+                const ticker = tickerMatch ? tickerMatch[1] : null;
+
+                if (!ticker) {
+                  content = '❌ Ticker symbol을 찾을 수 없어. 예: "@Helena JOBY 데이터 준비해줘"';
+                  responses.push({
+                    agent: 'Helena',
+                    content,
+                    emoji: '📚',
+                    status: '티커 필요'
+                  });
+                } else {
+                  // Create progress callback
+                  const onProgress = (status: string) => {
+                    console.log(`[Helena Progress] ${status}`);
+                    sendEvent('status', { agent: 'Helena', message: status });
+                  };
+
+                  result = await warRoom.executeTask(
+                    'Helena',
+                    'prepare_company_data',
+                    {
+                      ticker,
+                      years: 3,
+                      filingTypes: ['10-K', '10-Q', '20-F'],
+                      forceRefresh: false,
+                      onProgress,
+                    },
+                    context
+                  );
+
+                  console.log('[Helena] ✓ 완료:', result.success ? '성공' : '실패');
+
+                  if (result.success) {
+                    const data = result.data;
+                    content = `✅ ${data.company} (${data.ticker}) 데이터 준비 완료!\n\n` +
+                      `📊 처리된 Filing: ${data.filingsProcessed}개\n` +
+                      `💎 추출된 Metrics: ${data.metricsExtracted}개\n` +
+                      `📝 추출된 Sections: ${data.sectionsExtracted}개\n\n` +
+                      (data.readyForQuery ? '✅ Dorothy가 사용 가능해!' : '⚠️ 데이터 부족 - 추가 처리 필요');
+
+                    responses.push({
+                      agent: 'Helena',
+                      content,
+                      emoji: '📚',
+                      status: 'データ準備 완료'
+                    });
+                  } else {
+                    content = `❌ ${result.error}`;
+                    responses.push({
+                      agent: 'Helena',
+                      content,
+                      emoji: '📚',
+                      status: '오류 발생'
+                    });
+                  }
                 }
               } else if (agentName === 'Alice') {
                 sendEvent('status', { agent: 'Alice', message: 'Alice (전략 컨설턴트) 시작...' });
