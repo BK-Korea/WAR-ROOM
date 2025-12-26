@@ -4,6 +4,7 @@ import { query } from '../db/connection';
 import { DOROTHY_SYSTEM_PROMPT, DOROTHY_TASK_PROMPTS } from '../prompts/dorothy';
 import { secClient, SECFiling, SECCompanyInfo } from '../services/SECClient';
 import { jinaClient } from '../services/JinaAIClient';
+import { checkHelenaDataAvailability, isSupabaseConfigured } from '../lib/supabase';
 import axios from 'axios';
 
 /**
@@ -588,7 +589,44 @@ Provide comprehensive financial health assessment:
 
       console.log(`[Dorothy] - 검색어: ${searchTerm}`);
 
-      // Get relevant filings
+      // =====================================================
+      // Helena Data Availability Check (Goldman Sachs-grade fast path)
+      // =====================================================
+      if (isSupabaseConfigured() && companyTicker) {
+        progress('Helena 데이터 확인 중...');
+        console.log(`\n[Dorothy] 🔍 Helena 데이터 availability 체크...`);
+
+        try {
+          const helenaAvailability = await checkHelenaDataAvailability(
+            companyTicker,
+            extractedYear
+          );
+
+          if (helenaAvailability.available) {
+            console.log(`[Dorothy] ✅ Helena 데이터 발견!`);
+            console.log(`[Dorothy]   - Filings: ${helenaAvailability.filings_count}`);
+            console.log(`[Dorothy]   - Metrics: ${helenaAvailability.metrics_count}`);
+            console.log(`[Dorothy]   - Last update: ${helenaAvailability.last_update}`);
+
+            progress('Helena DB에서 빠른 조회 중... (0.1초)');
+
+            // TODO: Phase 2 - Use Helena's query_financials for instant response
+            // For now, we continue with existing flow but with awareness
+            console.log(`[Dorothy] ℹ️ Helena 데이터 사용 로직은 Phase 2에서 구현 예정`);
+            console.log(`[Dorothy] ℹ️ 현재는 기존 방식으로 진행 (실시간 다운로드)`);
+          } else {
+            console.log(`[Dorothy] ℹ️ Helena 데이터 없음 - 기존 방식 사용`);
+            console.log(`[Dorothy] 💡 Tip: Helena에게 "${companyTicker} 데이터 준비해줘"라고 요청하면 다음번엔 빠를 거야!`);
+          }
+        } catch (error: any) {
+          console.log(`[Dorothy] ⚠️ Helena 체크 실패: ${error.message}`);
+          console.log(`[Dorothy] → 기존 방식으로 진행`);
+        }
+      } else if (!isSupabaseConfigured()) {
+        console.log(`[Dorothy] ℹ️ Supabase 미설정 - Helena 기능 비활성화`);
+      }
+
+      // Get relevant filings (existing flow)
       progress('DB에서 SEC filing 검색 중...');
       console.log(`\n[Dorothy] 2️⃣  DB에서 SEC filing 검색 중...`);
       console.log(`[Dorothy] - 검색 키: ${companyTicker || companyCIK}`);

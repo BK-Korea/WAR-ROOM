@@ -145,8 +145,14 @@ export class Helena extends BaseAgent {
    * This is a background task that can take 5-10 minutes
    */
   private async prepareCompanyData(params: any, context: AgentContext): Promise<TaskResult> {
-    const { ticker, years = 3, filingTypes = ['10-K', '10-Q', '20-F'], forceRefresh = false } = params;
-    const progress = context.progress || (() => {});
+    const { ticker, years = 3, filingTypes = ['10-K', '10-Q', '20-F'], forceRefresh = false, onProgress } = params;
+
+    // Progress callback helper
+    const progress = (message: string) => {
+      if (onProgress && typeof onProgress === 'function') {
+        onProgress(message);
+      }
+    };
 
     if (!isSupabaseConfigured()) {
       return {
@@ -162,7 +168,7 @@ export class Helena extends BaseAgent {
 
     try {
       // Step 1: Get company info from SEC
-      const companyInfo = await secClient.lookupCompany(ticker);
+      const companyInfo = await secClient.getCompanyByTicker(ticker);
       if (!companyInfo) {
         return {
           success: false,
@@ -231,14 +237,15 @@ export class Helena extends BaseAgent {
 
       for (const filing of filings) {
         try {
-          progress(`[${processedFilings + 1}/${filings.length}] ${filing.filing_type} (${filing.filing_date}) 처리 중...`);
-          console.log(`\n[Helena] 📄 Processing ${filing.filing_type} from ${filing.filing_date}...`);
+          progress(`[${processedFilings + 1}/${filings.length}] ${filing.filingType} (${filing.filingDate}) 처리 중...`);
+          console.log(`\n[Helena] 📄 Processing ${filing.filingType} from ${filing.filingDate}...`);
 
           // Download and convert to markdown
-          const url = `https://www.sec.gov/Archives/edgar/data/${companyInfo.cik.replace(/^0+/, '')}/${filing.accession_number.replace(/-/g, '')}/${filing.accession_number}.txt`;
+          const url = `https://www.sec.gov/Archives/edgar/data/${companyInfo.cik.replace(/^0+/, '')}/${filing.accessionNumber.replace(/-/g, '')}/${filing.accessionNumber}.txt`;
 
           console.log(`[Helena] - Downloading from SEC...`);
-          const markdownContent = await jinaClient.convertToMarkdown(url);
+          const conversionResult = await jinaClient.convertURL(url);
+          const markdownContent = conversionResult.markdown;
           console.log(`[Helena] ✓ Converted to markdown (${markdownContent.length} chars)`);
 
           // Step 5: Extract sections
@@ -262,7 +269,7 @@ export class Helena extends BaseAgent {
           processedFilings++;
 
         } catch (error: any) {
-          console.error(`[Helena] ❌ Failed to process filing ${filing.accession_number}:`, error.message);
+          console.error(`[Helena] ❌ Failed to process filing ${filing.accessionNumber}:`, error.message);
           // Continue with next filing
         }
       }
@@ -274,7 +281,7 @@ export class Helena extends BaseAgent {
         company_name: companyInfo.name,
         filings_count: processedFilings,
         metrics_count: totalMetrics,
-        last_filing_date: filings[0]?.filing_date || null
+        last_filing_date: filings[0]?.filingDate || null
       });
 
       progress('✅ 완료!');
@@ -295,9 +302,9 @@ export class Helena extends BaseAgent {
           processingTime: 'N/A',
           readyForQuery: totalSections > 0,
           sources: filings.slice(0, processedFilings).map(f => ({
-            filing_type: f.filing_type,
-            date: f.filing_date,
-            accession: f.accession_number,
+            filing_type: f.filingType,
+            date: f.filingDate,
+            accession: f.accessionNumber,
             sections: Math.floor(totalSections / processedFilings) // Average
           }))
         }
@@ -566,15 +573,15 @@ export class Helena extends BaseAgent {
           ticker: ticker.toUpperCase(),
           cik: companyInfo.cik,
           company_name: companyInfo.name,
-          filing_type: filing.filing_type,
-          filing_date: filing.filing_date,
-          filing_accession: filing.accession_number,
+          filing_type: filing.filingType,
+          filing_date: filing.filingDate,
+          filing_accession: filing.accessionNumber,
           section_type: type,
           section_name: name,
           full_content: content,
           content_length: content.length,
           content_hash: this.generateHash(content),
-          source_url: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${companyInfo.cik}&type=${filing.filing_type}&dateb=&owner=exclude&count=100`,
+          source_url: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${companyInfo.cik}&type=${filing.filingType}&dateb=&owner=exclude&count=100`,
           processed_by: 'Helena',
           processing_version: this.PROCESSING_VERSION
         });
