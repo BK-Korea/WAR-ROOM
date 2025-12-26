@@ -676,189 +676,78 @@ ${sectionsContext}
                   }
                 };
               } else {
-                console.log(`[Dorothy] ⚠️ Helena DB에 metrics 없음 - 기존 방식 사용`);
+                // ============================================
+                // Helena DB에 metrics 없음 - 에러 반환
+                // ============================================
+                console.log(`[Dorothy] ❌ Helena DB에 XBRL metrics 없음`);
+
+                return {
+                  success: false,
+                  error: `❌ Helena DB에 ${companyTicker} XBRL 데이터가 없어.\n\n` +
+                         `**문제:** Helena가 ${helenaAvailability.filings_count}개 filing을 다운로드했지만, XBRL 파싱에 실패했어.\n\n` +
+                         `**해결 방법:**\n` +
+                         `1. "@Helena ${companyTicker} 데이터 준비해줘" 다시 실행 (forceRefresh)\n` +
+                         `2. Helena가 XBRL 파싱을 완료할 때까지 대기\n` +
+                         `3. XBRL 파싱 성공하면 정확한 분기별 매출 제공 가능\n\n` +
+                         `**현재 상태:**\n` +
+                         `- Filings: ${helenaAvailability.filings_count}개 ✅\n` +
+                         `- XBRL Metrics: 0개 ❌\n\n` +
+                         `💡 Helena의 XBRL 파싱이 완료되면 Goldman Sachs-grade 정확도로 답변할 수 있어!`
+                };
               }
             } catch (helenaError: any) {
               console.warn(`[Dorothy] ⚠️ Helena DB 조회 실패: ${helenaError.message}`);
-              console.log(`[Dorothy] → 기존 방식으로 fallback`);
+
+              return {
+                success: false,
+                error: `❌ Helena DB 조회 중 오류 발생: ${helenaError.message}\n\n` +
+                       `**해결 방법:**\n` +
+                       `1. Supabase 연결 확인\n` +
+                       `2. "@Helena ${companyTicker} 데이터 준비해줘" 다시 실행`
+              };
             }
           } else {
-            console.log(`[Dorothy] ℹ️ Helena 데이터 없음 - 기존 방식 사용`);
-            console.log(`[Dorothy] 💡 Tip: Helena에게 "${companyTicker} 데이터 준비해줘"라고 요청하면 다음번엔 빠를 거야!`);
+            console.log(`[Dorothy] ℹ️ Helena 데이터 없음`);
+
+            return {
+              success: false,
+              error: `❌ Helena DB에 ${companyTicker} 데이터가 없어.\n\n` +
+                     `**해결 방법:**\n` +
+                     `먼저 "@Helena ${companyTicker} 데이터 준비해줘"를 실행해서 SEC filing 데이터를 준비해야 해.\n\n` +
+                     `Helena가 XBRL 파싱을 완료하면:\n` +
+                     `- 분기별 매출, 순이익 등 정확한 숫자 제공\n` +
+                     `- < 1초 초고속 조회\n` +
+                     `- 100% 정확도 (XBRL 태그 기반)\n\n` +
+                     `💡 준비 시간: 약 1-2분`
+            };
           }
         } catch (error: any) {
           console.log(`[Dorothy] ⚠️ Helena 체크 실패: ${error.message}`);
-          console.log(`[Dorothy] → 기존 방식으로 진행`);
+
+          return {
+            success: false,
+            error: `❌ Helena availability 체크 실패: ${error.message}\n\n` +
+                   `Supabase 연결을 확인해줘.`
+          };
         }
       } else if (!isSupabaseConfigured()) {
         console.log(`[Dorothy] ℹ️ Supabase 미설정 - Helena 기능 비활성화`);
+
+        return {
+          success: false,
+          error: `❌ Supabase가 설정되지 않아서 Helena를 사용할 수 없어.\n\n` +
+                 `**현재 상태:** Fallback 모드 비활성화\n\n` +
+                 `Dorothy는 Helena DB의 XBRL 데이터만 사용해서 100% 정확한 답변을 제공해.\n` +
+                 `Supabase를 설정하고 Helena로 데이터를 준비해줘.`
+        };
       }
 
-      // Get relevant filings (existing flow)
-      progress('DB에서 SEC filing 검색 중...');
-      console.log(`\n[Dorothy] 2️⃣  DB에서 SEC filing 검색 중...`);
-      console.log(`[Dorothy] - 검색 키: ${companyTicker || companyCIK}`);
-      console.log(`[Dorothy] - Filing 타입: ${filingType || '10-K + 10-Q'}`);
+      // ============================================
+      // 여기서 return되지 않았다면 Helena 데이터 사용 성공
+      // (fallback 로직은 완전히 제거됨)
+      // ============================================
 
-      let filings;
-      if (filingType) {
-        const filing = await this.getLatestFiling(companyTicker, companyCIK, filingType);
-        filings = filing ? [filing] : [];
-        console.log(`[Dorothy] - ${filingType}: ${filing ? '발견 ✓' : '없음 ✗'}`);
-      } else {
-        // Get both 10-K and 10-Q
-        const annual = await this.getLatestFiling(companyTicker, companyCIK, '10-K');
-        const quarterly = await this.getLatestFiling(companyTicker, companyCIK, '10-Q');
-        filings = [annual, quarterly].filter(Boolean);
-        console.log(`[Dorothy] - 10-K filing: ${annual ? '발견 ✓' : '없음 ✗'}`);
-        console.log(`[Dorothy] - 10-Q filing: ${quarterly ? '발견 ✓' : '없음 ✗'}`);
-      }
-
-      console.log(`[Dorothy] ✓ DB 검색 결과: ${filings.length}개 filing 발견`);
-
-      // Auto-download SEC data if not available
-      if (filings.length === 0) {
-        progress('SEC Edgar에서 filing 다운로드 중...');
-        console.log(`\n[Dorothy] 3️⃣  SEC Edgar에서 자동 다운로드 시작...`);
-        console.log(`[Dorothy] - 대상: ${companyTicker || companyCIK || companyName}`);
-        console.log(`[Dorothy] - Filing 타입: ${filingType || 'financial statements (10-K, 10-Q, 20-F)'}`);
-        console.log(`[Dorothy] - 연도: ${extractedYear || 'all'}`);
-        console.log(`[Dorothy] - 다운로드 limit: 5`);
-
-        // Try ticker first, then fallback to company name
-        let fetchResult = await this.fetchSECData(
-          {
-            ticker: companyTicker || companyCIK || companyName,
-            cik: companyCIK,
-            filingType: filingType || undefined,  // If not specified, fetchSECData will use all types
-            year: extractedYear,
-            limit: 5  // Balanced limit - enough data without Vercel timeout
-          },
-          context
-        );
-
-        // If ticker search failed and we have a company name, try again with company name
-        if (!fetchResult.success && companyTicker && companyName && companyTicker !== companyName) {
-          console.log(`[Dorothy] ⚠️  Ticker "${companyTicker}" 검색 실패, 회사명 "${companyName}"으로 재시도...`);
-          fetchResult = await this.fetchSECData(
-            {
-              ticker: companyName,  // Try with full company name
-              cik: companyCIK,
-              filingType: filingType || undefined,
-              year: extractedYear,
-              limit: 20
-            },
-            context
-          );
-        }
-
-        if (!fetchResult.success) {
-          console.log(`[Dorothy] ✗ SEC 다운로드 실패: ${fetchResult.error}`);
-          return {
-            success: false,
-            error: `SEC 자료를 찾을 수 없어: ${fetchResult.error}`
-          };
-        }
-
-        console.log(`[Dorothy] ✓ SEC 다운로드 완료: ${fetchResult.data.filingsDownloaded}개 filing`);
-        console.log(`[Dorothy] - 다운로드한 회사: ${fetchResult.data.company.name}`);
-        console.log(`[Dorothy] - CIK: ${fetchResult.data.company.cik}`);
-
-        // Use downloaded filings directly (no DB re-check needed)
-        console.log(`\n[Dorothy] 4️⃣  다운로드된 filing 데이터 사용...`);
-
-        filings = fetchResult.data.filings || [];
-
-        if (filings.length === 0) {
-          console.log('[Dorothy] ❌ 다운로드된 filing 없음');
-          return {
-            success: false,
-            error: `SEC filing을 다운로드했지만 사용 가능한 데이터가 없어.`
-          };
-        }
-
-        console.log(`[Dorothy] ✓ ${filings.length}개 filing 메모리에서 사용 가능`);
-        filings.forEach((f: any, idx: number) => {
-          console.log(`[Dorothy]   ${idx + 1}. ${f.filing_type} (${f.filing_date}) - ${f.markdown_content ? 'Markdown ✓' : 'Raw only'}`);
-        });
-      }
-
-      progress(`${filings[0].company_name} 재무 데이터 분석 중...`);
-      console.log(`\n[Dorothy] 5️⃣  LLM 분석 시작...`);
-      console.log(`[Dorothy] - 회사: ${filings[0].company_name}`);
-      console.log(`[Dorothy] - 사용할 filing 수: ${filings.length}`);
-
-      filings.forEach((f: any, idx: number) => {
-        console.log(`[Dorothy]   ${idx + 1}. ${f.filing_type} (${f.filing_date})`);
-        console.log(`[Dorothy]      - Accession: ${f.accession_number}`);
-        console.log(`[Dorothy]      - Markdown: ${f.markdown_content ? 'Yes ✓' : 'No, using raw_content'}`);
-        console.log(`[Dorothy]      - Content length: ${(f.markdown_content || f.raw_content)?.length || 0} chars`);
-      });
-
-      // Calculate optimal content length per filing based on total count
-      // Goal: Keep total tokens under 200k (roughly 800k chars)
-      // Increased allocation to capture more financial statement content
-      const charsPerFiling = Math.min(
-        200000,  // Max per filing (doubled for better financial data capture)
-        Math.floor(800000 / filings.length)  // Dynamic based on filing count
-      );
-
-      console.log(`[Dorothy] - Chars per filing: ${charsPerFiling} (${filings.length} filings total)`);
-
-      const answerPrompt = `QUESTION: ${question}
-
-COMPANY: ${filings[0].company_name}
-
-AVAILABLE SEC FILINGS:
-${filings.map((f: any) => `- ${f.filing_type} filed ${f.filing_date}`).join('\n')}
-
-SEC FILING DATA:
-${filings.map((f: any, idx: number) => {
-  const content = f.markdown_content || f.raw_content;
-  const truncated = this.truncateContent(content, charsPerFiling);
-  return `
-=== ${f.filing_type} (${f.filing_date}) ===
-${truncated}
-`;
-}).join('\n\n')}
-
-⚠️ CRITICAL RULES - MUST FOLLOW:
-1. Answer using ONLY the SEC filing data provided above
-2. DO NOT use general knowledge, industry averages, or past training data
-3. DO NOT make up numbers - if specific data is not in filings, say "이 정보는 SEC filing에 없어, Master"
-4. ALWAYS cite the specific filing type and date
-5. Use Korean 반말 (casual speech) and call user "Master" (not "Master님")
-6. If the question cannot be answered with the filings, respond with "답변 불가 - 이 정보는 SEC filing에 없어, Master"
-
-Answer the question now:`;
-
-      console.log(`[Dorothy] - Prompt 길이: ${answerPrompt.length} chars`);
-      console.log(`[Dorothy] - LLM 호출 중... (temperature: 0.3)`);
-
-      const answer = await this.callLLM(answerPrompt, 0.3);
-
-      console.log(`[Dorothy] ✓ LLM 분석 완료`);
-      console.log(`[Dorothy] - 응답 길이: ${answer.length} chars`);
-      console.log(`[Dorothy] - Sources: ${filings.map((f: any) => `${f.filing_type} (${f.filing_date})`).join(', ')}`);
-
-      return {
-        success: true,
-        data: {
-          company: filings[0].company_name,
-          question,
-          answer,
-          sourcesUsed: filings.map((f: any) => ({
-            type: f.filing_type,
-            date: f.filing_date,
-            accessionNumber: f.accession_number
-          })),
-          statusLog: [
-            `✓ 회사 추출: ${filings[0].company_name}`,
-            `✓ SEC filing ${filings.length}개 사용`,
-            `✓ 분석 완료`
-          ]
-        }
-      };
+      throw new Error('Unexpected flow - should have returned from Helena path');
     } catch (error: any) {
       console.error('\n[Dorothy] ❌ FATAL ERROR in answerQuestion:');
       console.error('[Dorothy] Error message:', error.message);

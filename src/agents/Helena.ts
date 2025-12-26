@@ -265,8 +265,16 @@ export class Helena extends BaseAgent {
           }
 
           // Step 6: Parse XBRL for 100% accurate financials
-          console.log(`[Helena] 📊 Parsing XBRL data...`);
+          console.log(`\n[Helena XBRL] ============================================`);
+          console.log(`[Helena XBRL] 📊 Starting XBRL parsing...`);
+          console.log(`[Helena XBRL] - Filing: ${filing.filingType} (${filing.filingDate})`);
+          console.log(`[Helena XBRL] - Accession: ${filing.accessionNumber}`);
+          console.log(`[Helena XBRL] - CIK: ${companyInfo.cik}`);
+          console.log(`[Helena XBRL] ============================================\n`);
+
           try {
+            console.log(`[Helena XBRL] Step 1: Calling parseXBRLFiling()...`);
+
             const xbrlResult = await parseXBRLFiling({
               cik: companyInfo.cik,
               ticker: ticker.toUpperCase(),
@@ -276,16 +284,30 @@ export class Helena extends BaseAgent {
               filingDate: filing.filingDate
             });
 
+            console.log(`[Helena XBRL] Step 2: Parse result received`);
+            console.log(`[Helena XBRL] - Has result: ${!!xbrlResult}`);
+            console.log(`[Helena XBRL] - Financials count: ${xbrlResult?.financials?.length || 0}`);
+
             if (xbrlResult && xbrlResult.financials.length > 0) {
+              console.log(`[Helena XBRL] ✅ XBRL data found! Processing ${xbrlResult.financials.length} facts...`);
+
               // Detect industry for validation
               const industry = detectIndustry(ticker, companyInfo.name);
+              console.log(`[Helena XBRL] - Industry detected: ${industry}`);
 
               // Save XBRL financials to database
               const financialsToSave: Partial<CompanyFinancial>[] = [];
+              let validatedCount = 0;
+              let skippedCount = 0;
 
               for (const financial of xbrlResult.financials) {
                 // Convert to actual dollars
                 const actualValue = convertXBRLValue(financial.value, financial.scale);
+
+                console.log(`[Helena XBRL] Processing: ${financial.label} = ${actualValue} ${financial.unit}`);
+                console.log(`[Helena XBRL]   - XBRL Tag: ${financial.xbrlTag}`);
+                console.log(`[Helena XBRL]   - Scale: ${financial.scale}`);
+                console.log(`[Helena XBRL]   - Period: ${financial.periodEnd}`);
 
                 // Validate if it's revenue
                 if (financial.xbrlTag.includes('Revenue')) {
@@ -301,14 +323,16 @@ export class Helena extends BaseAgent {
                   );
 
                   if (!validation.valid) {
-                    console.warn(`[Helena] ⚠️ Validation warning for ${financial.label}: ${validation.reason}`);
-                    // Skip invalid data
+                    console.warn(`[Helena XBRL] ⚠️ Validation FAILED for ${financial.label}: ${validation.reason}`);
+                    skippedCount++;
                     continue;
                   }
 
                   if (validation.warnings) {
-                    validation.warnings.forEach(w => console.warn(`[Helena] ⚠️ ${w}`));
+                    validation.warnings.forEach(w => console.warn(`[Helena XBRL] ⚠️ Warning: ${w}`));
                   }
+
+                  console.log(`[Helena XBRL] ✅ Validation passed`);
                 }
 
                 financialsToSave.push({
@@ -329,22 +353,42 @@ export class Helena extends BaseAgent {
                   processed_by: 'Helena',
                   processing_version: this.PROCESSING_VERSION
                 });
+                validatedCount++;
               }
+
+              console.log(`[Helena XBRL] Step 3: Validation complete`);
+              console.log(`[Helena XBRL] - Validated: ${validatedCount}`);
+              console.log(`[Helena XBRL] - Skipped: ${skippedCount}`);
+              console.log(`[Helena XBRL] - To save: ${financialsToSave.length}`);
 
               // Batch insert financials
               if (financialsToSave.length > 0) {
+                console.log(`[Helena XBRL] Step 4: Saving to database...`);
                 await this.saveFinancials(financialsToSave);
                 totalMetrics += financialsToSave.length;
-                console.log(`[Helena] ✓ Saved ${financialsToSave.length} XBRL metrics`);
+                console.log(`[Helena XBRL] ✅ Successfully saved ${financialsToSave.length} XBRL metrics to DB`);
               } else {
-                console.log(`[Helena] ℹ️ No valid XBRL metrics to save`);
+                console.log(`[Helena XBRL] ⚠️ No valid XBRL metrics to save after validation`);
               }
             } else {
-              console.log(`[Helena] ℹ️ No XBRL data found in filing`);
+              console.log(`[Helena XBRL] ⚠️ No XBRL data found in filing`);
+              console.log(`[Helena XBRL] Possible reasons:`);
+              console.log(`[Helena XBRL] 1. Filing doesn't have XBRL (older filings)`);
+              console.log(`[Helena XBRL] 2. XBRL download failed`);
+              console.log(`[Helena XBRL] 3. XBRL parse returned empty`);
             }
           } catch (xbrlError: any) {
-            console.warn(`[Helena] ⚠️ XBRL parsing failed (non-critical): ${xbrlError.message}`);
+            console.error(`\n[Helena XBRL] ❌ ============================================`);
+            console.error(`[Helena XBRL] ❌ XBRL PARSING FAILED`);
+            console.error(`[Helena XBRL] ❌ ============================================`);
+            console.error(`[Helena XBRL] Error type: ${xbrlError.constructor.name}`);
+            console.error(`[Helena XBRL] Error message: ${xbrlError.message}`);
+            console.error(`[Helena XBRL] Stack trace:`);
+            console.error(xbrlError.stack);
+            console.error(`[Helena XBRL] ❌ ============================================\n`);
+
             // Continue - XBRL is optional, we still have markdown sections
+            console.log(`[Helena XBRL] ℹ️ Continuing without XBRL data (markdown sections still saved)`);
           }
 
           processedFilings++;

@@ -1,11 +1,15 @@
 /**
- * XBRL Parser - Goldman Sachs-grade financial data extraction
+ * XBRL Parser - Professional-grade SEC XBRL data extraction
  *
- * Extracts structured financial data from SEC XBRL filings
- * with 100% accuracy (no LLM hallucination)
+ * Based on industry best practices for XBRL parsing
+ * References:
+ * - SEC EDGAR XBRL format spec
+ * - XBRL International standards
+ * - Real-world SEC filings analysis
  */
 
 import axios from 'axios';
+import * as xml2js from 'xml2js';
 
 // ============================================
 // Types
@@ -38,88 +42,126 @@ export interface XBRLParseResult {
 }
 
 // ============================================
-// Common XBRL Tags (US GAAP)
+// Constants
 // ============================================
 
-const COMMON_FINANCIAL_TAGS = {
-  // Income Statement
-  'us-gaap:Revenues': 'Total Revenue',
-  'us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax': 'Revenue from Contracts',
-  'us-gaap:SalesRevenueNet': 'Net Sales Revenue',
-  'us-gaap:CostOfRevenue': 'Cost of Revenue',
-  'us-gaap:GrossProfit': 'Gross Profit',
-  'us-gaap:OperatingIncomeLoss': 'Operating Income',
-  'us-gaap:NetIncomeLoss': 'Net Income',
-  'us-gaap:EarningsPerShareBasic': 'EPS (Basic)',
-  'us-gaap:EarningsPerShareDiluted': 'EPS (Diluted)',
+const USER_AGENT = 'WAR-ROOM/1.0 ([email protected])';
 
-  // Balance Sheet
-  'us-gaap:Assets': 'Total Assets',
-  'us-gaap:AssetsCurrent': 'Current Assets',
-  'us-gaap:AssetsNoncurrent': 'Non-current Assets',
-  'us-gaap:CashAndCashEquivalentsAtCarryingValue': 'Cash and Cash Equivalents',
-  'us-gaap:Liabilities': 'Total Liabilities',
-  'us-gaap:LiabilitiesCurrent': 'Current Liabilities',
-  'us-gaap:StockholdersEquity': 'Stockholders Equity',
-
-  // Cash Flow
-  'us-gaap:NetCashProvidedByUsedInOperatingActivities': 'Operating Cash Flow',
-  'us-gaap:NetCashProvidedByUsedInInvestingActivities': 'Investing Cash Flow',
-  'us-gaap:NetCashProvidedByUsedInFinancingActivities': 'Financing Cash Flow',
+// Common XBRL namespaces
+const XBRL_NAMESPACES = {
+  'us-gaap': 'http://fasb.org/us-gaap/',
+  'dei': 'http://xbrl.sec.gov/dei/',
+  'xbrli': 'http://www.xbrl.org/2003/instance',
+  'xbrldi': 'http://xbrl.org/2006/xbrldi',
+  'link': 'http://www.xbrl.org/2003/linkbase',
 };
+
+// Financial metrics we care about (US GAAP)
+const KEY_METRICS = [
+  'Revenues',
+  'RevenueFromContractWithCustomerExcludingAssessedTax',
+  'SalesRevenueNet',
+  'NetIncomeLoss',
+  'GrossProfit',
+  'OperatingIncomeLoss',
+  'Assets',
+  'AssetsCurrent',
+  'Liabilities',
+  'LiabilitiesCurrent',
+  'StockholdersEquity',
+  'CashAndCashEquivalentsAtCarryingValue',
+  'EarningsPerShareBasic',
+  'EarningsPerShareDiluted',
+];
 
 // ============================================
 // XBRL Parser Class
 // ============================================
 
 export class XBRLParser {
-  private userAgent = 'WAR-ROOM/1.0 ([email protected])';
+  private userAgent = USER_AGENT;
 
   /**
    * Download XBRL instance document from SEC EDGAR
+   *
+   * SEC XBRL file structure:
+   * /Archives/edgar/data/{CIK}/{ACCESSION_NO_DASHES}/{COMPANY}-{DATE}.xml
    */
-  async downloadXBRL(accessionNumber: string, cik: string): Promise<string> {
+  async downloadXBRL(accessionNumber: string, cik: string): Promise<string | null> {
     try {
-      // Format: https://www.sec.gov/cgi-bin/viewer?action=view&cik=1819848&accession_number=0001819848-24-000125&xbrl_type=v
-      // Or direct XML: https://www.sec.gov/Archives/edgar/data/1819848/000181984824000125/joby-20231231.xml
-
-      // Clean accession number (remove dashes)
-      const cleanAccession = accessionNumber.replace(/-/g, '');
       const cleanCIK = cik.replace(/^0+/, ''); // Remove leading zeros
+      const cleanAccession = accessionNumber.replace(/-/g, ''); // Remove dashes
 
-      // Try to construct XBRL instance document URL
-      // Pattern: /Archives/edgar/data/{CIK}/{ACCESSION}/{TICKER}-{DATE}.xml
-      const baseUrl = `https://www.sec.gov/cgi-bin/viewer?action=view&cik=${cleanCIK}&accession_number=${accessionNumber}&xbrl_type=v`;
+      console.log(`[XBRL Parser] Looking for XBRL instance document...`);
+      console.log(`[XBRL Parser] CIK: ${cleanCIK}, Accession: ${accessionNumber}`);
 
-      console.log(`[XBRL Parser] Downloading XBRL from SEC...`);
-      console.log(`[XBRL Parser] URL: ${baseUrl}`);
+      // Step 1: Get filing index page to find XBRL files
+      const indexUrl = `https://www.sec.gov/cgi-bin/viewer?action=view&cik=${cleanCIK}&accession_number=${accessionNumber}&xbrl_type=v`;
+      console.log(`[XBRL Parser] Fetching index: ${indexUrl}`);
 
-      const response = await axios.get(baseUrl, {
-        headers: {
-          'User-Agent': this.userAgent,
-          'Accept': 'application/xml, text/xml, */*',
-        },
+      const indexResponse = await axios.get(indexUrl, {
+        headers: { 'User-Agent': this.userAgent },
         timeout: 30000,
       });
 
-      if (!response.data) {
-        throw new Error('Empty XBRL response');
+      // Step 2: Look for XBRL instance document link
+      // Pattern: href="/Archives/edgar/data/{CIK}/{ACCESSION}/{FILENAME}.xml"
+      const xbrlLinkPattern = /href="(\/Archives\/edgar\/data\/\d+\/\d+\/[^"]+\.xml)"/gi;
+      const matches = [...indexResponse.data.matchAll(xbrlLinkPattern)];
+
+      console.log(`[XBRL Parser] Found ${matches.length} .xml files`);
+
+      if (matches.length === 0) {
+        console.log(`[XBRL Parser] ⚠️ No XBRL .xml files found in filing`);
+        return null;
       }
 
-      return response.data;
+      // Find instance document (usually contains company ticker or date in filename)
+      // Instance docs are typically NOT "_cal.xml", "_def.xml", "_lab.xml", "_pre.xml"
+      const instanceDocs = matches.filter(m => {
+        const filename = m[1].toLowerCase();
+        return !filename.includes('_cal.xml') &&
+               !filename.includes('_def.xml') &&
+               !filename.includes('_lab.xml') &&
+               !filename.includes('_pre.xml');
+      });
+
+      console.log(`[XBRL Parser] Instance documents found: ${instanceDocs.length}`);
+
+      if (instanceDocs.length === 0) {
+        console.log(`[XBRL Parser] ⚠️ No instance document found`);
+        return null;
+      }
+
+      // Use the first instance document
+      const xbrlPath = instanceDocs[0][1];
+      const xbrlUrl = `https://www.sec.gov${xbrlPath}`;
+
+      console.log(`[XBRL Parser] Downloading instance document: ${xbrlUrl}`);
+
+      // Step 3: Download XBRL XML
+      const xbrlResponse = await axios.get(xbrlUrl, {
+        headers: { 'User-Agent': this.userAgent },
+        timeout: 60000,
+      });
+
+      console.log(`[XBRL Parser] ✅ XBRL downloaded (${xbrlResponse.data.length} chars)`);
+      return xbrlResponse.data;
+
     } catch (error: any) {
       console.error(`[XBRL Parser] ❌ Download failed:`, error.message);
-      throw new Error(`XBRL download failed: ${error.message}`);
+      if (error.response) {
+        console.error(`[XBRL Parser] Status: ${error.response.status}`);
+        console.error(`[XBRL Parser] Response: ${error.response.data?.substring(0, 500)}`);
+      }
+      return null;
     }
   }
 
   /**
-   * Parse XBRL instance document
-   *
-   * NOTE: This is a simplified parser for demonstration.
-   * Production would use a full XBRL processor like Arelle or XBRL-US library.
+   * Parse XBRL XML using xml2js
    */
-  async parse(xbrlContent: string, filing: {
+  async parse(xbrlXml: string, filing: {
     cik: string;
     ticker: string;
     companyName: string;
@@ -128,46 +170,43 @@ export class XBRLParser {
     filingDate: string;
   }): Promise<XBRLParseResult> {
     try {
-      console.log(`[XBRL Parser] Parsing XBRL document...`);
+      console.log(`[XBRL Parser] Parsing XML...`);
 
-      // Extract fiscal period info from filing type and date
-      const fiscalYear = parseInt(filing.filingDate.split('-')[0]);
-      const fiscalQuarter = filing.filingType === '10-Q' ? this.extractQuarter(filing.filingDate) : undefined;
+      // Parse XML
+      const parser = new xml2js.Parser({
+        explicitArray: false,
+        mergeAttrs: true,
+        xmlns: true,
+        tagNameProcessors: [xml2js.processors.stripPrefix], // Remove namespace prefixes
+      });
 
-      // Parse financial facts
-      const financials: XBRLFinancial[] = [];
+      const result = await parser.parseStringPromise(xbrlXml);
 
-      // Simple regex-based extraction (production should use XML parser)
-      for (const [tag, label] of Object.entries(COMMON_FINANCIAL_TAGS)) {
-        const tagName = tag.split(':')[1]; // Extract local name
-        const pattern = new RegExp(`<${tag}[^>]*>([^<]+)</${tag}>`, 'g');
+      console.log(`[XBRL Parser] ✅ XML parsed`);
+      console.log(`[XBRL Parser] Root keys: ${Object.keys(result).join(', ')}`);
 
-        let match;
-        while ((match = pattern.exec(xbrlContent)) !== null) {
-          const valueStr = match[1].trim();
-          const value = this.parseValue(valueStr);
+      // XBRL structure: <xbrl> root element
+      const xbrl = result.xbrl || result;
 
-          if (value !== null) {
-            // Extract context and period info (simplified)
-            const contextMatch = match[0].match(/contextRef="([^"]+)"/);
-            const contextRef = contextMatch ? contextMatch[1] : 'unknown';
-
-            financials.push({
-              xbrlTag: tag,
-              label,
-              value,
-              unit: 'USD',
-              scale: this.detectScale(value),
-              periodStart: filing.filingDate,
-              periodEnd: filing.filingDate,
-              isInstant: false,
-              contextRef,
-            });
-          }
-        }
+      if (!xbrl) {
+        throw new Error('Invalid XBRL structure - no xbrl root element');
       }
 
-      console.log(`[XBRL Parser] ✓ Extracted ${financials.length} financial facts`);
+      // Extract contexts (period information)
+      const contexts = this.extractContexts(xbrl);
+      console.log(`[XBRL Parser] Extracted ${contexts.size} contexts`);
+
+      // Extract units
+      const units = this.extractUnits(xbrl);
+      console.log(`[XBRL Parser] Extracted ${units.size} units`);
+
+      // Extract facts
+      const financials = this.extractFacts(xbrl, contexts, units);
+      console.log(`[XBRL Parser] Extracted ${financials.length} financial facts`);
+
+      // Determine fiscal year and quarter
+      const fiscalYear = parseInt(filing.filingDate.split('-')[0]);
+      const fiscalQuarter = filing.filingType === '10-Q' ? this.extractQuarter(filing.filingDate) : undefined;
 
       return {
         cik: filing.cik,
@@ -180,31 +219,177 @@ export class XBRLParser {
         fiscalQuarter,
         financials,
       };
+
     } catch (error: any) {
       console.error(`[XBRL Parser] ❌ Parse failed:`, error.message);
-      throw new Error(`XBRL parse failed: ${error.message}`);
+      throw error;
     }
   }
 
   /**
-   * Parse value string to number
+   * Extract context information (periods, entities)
+   */
+  private extractContexts(xbrl: any): Map<string, any> {
+    const contexts = new Map();
+
+    try {
+      const contextArray = Array.isArray(xbrl.context) ? xbrl.context : [xbrl.context];
+
+      for (const ctx of contextArray) {
+        if (!ctx || !ctx.id) continue;
+
+        const context = {
+          id: ctx.id,
+          entity: ctx.entity?.identifier || null,
+          periodStart: ctx.period?.startDate || null,
+          periodEnd: ctx.period?.endDate || ctx.period?.instant || null,
+          isInstant: !!ctx.period?.instant,
+        };
+
+        contexts.set(ctx.id, context);
+      }
+    } catch (error: any) {
+      console.warn(`[XBRL Parser] Context extraction failed: ${error.message}`);
+    }
+
+    return contexts;
+  }
+
+  /**
+   * Extract unit information (USD, shares, etc.)
+   */
+  private extractUnits(xbrl: any): Map<string, string> {
+    const units = new Map();
+
+    try {
+      const unitArray = Array.isArray(xbrl.unit) ? xbrl.unit : [xbrl.unit];
+
+      for (const unit of unitArray) {
+        if (!unit || !unit.id) continue;
+
+        // Unit measure (e.g., "iso4217:USD", "shares")
+        const measure = unit.measure || unit.divide?.unitNumerator?.measure || 'unknown';
+        units.set(unit.id, measure);
+      }
+    } catch (error: any) {
+      console.warn(`[XBRL Parser] Unit extraction failed: ${error.message}`);
+    }
+
+    return units;
+  }
+
+  /**
+   * Extract financial facts from XBRL
+   */
+  private extractFacts(xbrl: any, contexts: Map<string, any>, units: Map<string, string>): XBRLFinancial[] {
+    const financials: XBRLFinancial[] = [];
+
+    try {
+      // Iterate through all elements looking for US GAAP tags
+      for (const [key, value] of Object.entries(xbrl)) {
+        // Skip non-fact elements
+        if (key === 'schemaRef' || key === 'context' || key === 'unit') continue;
+
+        // Check if this is a US GAAP metric we care about
+        const metricName = KEY_METRICS.find(m => key.toLowerCase().includes(m.toLowerCase()));
+        if (!metricName) continue;
+
+        // Handle both single fact and array of facts
+        const facts = Array.isArray(value) ? value : [value];
+
+        for (const fact of facts) {
+          if (!fact || typeof fact !== 'object') continue;
+
+          const contextRef = fact.contextRef;
+          const unitRef = fact.unitRef;
+          const textValue = fact._ || fact;
+
+          if (!contextRef || !textValue) continue;
+
+          const context = contexts.get(contextRef);
+          const unit = units.get(unitRef);
+
+          if (!context) continue;
+
+          const numericValue = this.parseValue(textValue);
+          if (numericValue === null) continue;
+
+          // Detect scale from decimals attribute or value magnitude
+          const decimals = fact.decimals;
+          const scale = this.detectScale(numericValue, decimals);
+
+          financials.push({
+            xbrlTag: `us-gaap:${metricName}`,
+            label: this.formatLabel(metricName),
+            value: numericValue,
+            unit: this.cleanUnit(unit || 'USD'),
+            scale,
+            periodStart: context.periodStart || context.periodEnd,
+            periodEnd: context.periodEnd,
+            isInstant: context.isInstant,
+            contextRef,
+            decimals: parseInt(decimals) || undefined,
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error(`[XBRL Parser] Fact extraction failed: ${error.message}`);
+    }
+
+    return financials;
+  }
+
+  /**
+   * Parse string value to number
    */
   private parseValue(valueStr: string): number | null {
+    if (typeof valueStr !== 'string') return null;
+
     const cleaned = valueStr.replace(/[,$\s]/g, '');
     const num = parseFloat(cleaned);
     return isNaN(num) ? null : num;
   }
 
   /**
-   * Detect scale based on value magnitude
+   * Detect scale from value and decimals attribute
    */
-  private detectScale(value: number): 'actual' | 'thousands' | 'millions' | 'billions' {
+  private detectScale(value: number, decimals?: string): 'actual' | 'thousands' | 'millions' | 'billions' {
     const absValue = Math.abs(value);
 
+    // XBRL decimals attribute hints at scale:
+    // decimals="-3" means thousands
+    // decimals="-6" means millions
+    if (decimals) {
+      const dec = parseInt(decimals);
+      if (dec === -9) return 'billions';
+      if (dec === -6) return 'millions';
+      if (dec === -3) return 'thousands';
+    }
+
+    // Fallback: detect from magnitude
     if (absValue >= 1_000_000_000) return 'billions';
     if (absValue >= 1_000_000) return 'millions';
     if (absValue >= 1_000) return 'thousands';
     return 'actual';
+  }
+
+  /**
+   * Clean unit string
+   */
+  private cleanUnit(unitStr: string): string {
+    if (unitStr.includes('USD') || unitStr.includes('usd')) return 'USD';
+    if (unitStr.includes('shares')) return 'shares';
+    return unitStr;
+  }
+
+  /**
+   * Format label (CamelCase to readable)
+   */
+  private formatLabel(camelCase: string): string {
+    return camelCase
+      .replace(/([A-Z])/g, ' $1')
+      .replace(/^./, str => str.toUpperCase())
+      .trim();
   }
 
   /**
@@ -224,16 +409,10 @@ export class XBRLParser {
 // Helper Functions
 // ============================================
 
-/**
- * Get XBRL parser instance
- */
 export function getXBRLParser(): XBRLParser {
   return new XBRLParser();
 }
 
-/**
- * Quick parse - download and parse in one call
- */
 export async function parseXBRLFiling(filing: {
   cik: string;
   ticker: string;
@@ -244,18 +423,24 @@ export async function parseXBRLFiling(filing: {
 }): Promise<XBRLParseResult | null> {
   try {
     const parser = getXBRLParser();
-    const xbrlContent = await parser.downloadXBRL(filing.accessionNumber, filing.cik);
-    const result = await parser.parse(xbrlContent, filing);
+
+    // Step 1: Download XBRL
+    const xbrlXml = await parser.downloadXBRL(filing.accessionNumber, filing.cik);
+    if (!xbrlXml) {
+      console.log(`[XBRL] No XBRL data available for ${filing.accessionNumber}`);
+      return null;
+    }
+
+    // Step 2: Parse XBRL
+    const result = await parser.parse(xbrlXml, filing);
     return result;
+
   } catch (error: any) {
     console.error(`[XBRL] ❌ Failed to parse filing ${filing.accessionNumber}:`, error.message);
     return null;
   }
 }
 
-/**
- * Extract specific financial metric
- */
 export function extractMetric(
   parseResult: XBRLParseResult,
   xbrlTag: string
@@ -263,11 +448,7 @@ export function extractMetric(
   return parseResult.financials.find(f => f.xbrlTag === xbrlTag) || null;
 }
 
-/**
- * Get revenue from parse result
- */
 export function getRevenue(parseResult: XBRLParseResult): XBRLFinancial | null {
-  // Try multiple revenue tags
   const revenueTags = [
     'us-gaap:Revenues',
     'us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax',
@@ -282,9 +463,6 @@ export function getRevenue(parseResult: XBRLParseResult): XBRLFinancial | null {
   return null;
 }
 
-/**
- * Get net income from parse result
- */
 export function getNetIncome(parseResult: XBRLParseResult): XBRLFinancial | null {
   return extractMetric(parseResult, 'us-gaap:NetIncomeLoss');
 }
