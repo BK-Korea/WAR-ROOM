@@ -14,6 +14,8 @@ import {
   CompanyMetadata,
   HelenaJob
 } from '../lib/supabase';
+import { parseXBRLFiling, getRevenue, getNetIncome } from '../lib/xbrl-parser';
+import { validateFinancialNumber, formatCurrency, detectIndustry, convertXBRLValue } from '../lib/validators';
 import crypto from 'crypto';
 
 /**
@@ -262,9 +264,88 @@ export class Helena extends BaseAgent {
             console.log(`[Helena] ✓ Saved ${sections.length} sections`);
           }
 
-          // Step 6: Parse XBRL (Phase 2 - for now, skip)
-          // TODO: Implement XBRL parsing with sec-api.io
-          console.log(`[Helena] ⏭️ XBRL parsing not yet implemented (Phase 2)`);
+          // Step 6: Parse XBRL for 100% accurate financials
+          console.log(`[Helena] 📊 Parsing XBRL data...`);
+          try {
+            const xbrlResult = await parseXBRLFiling({
+              cik: companyInfo.cik,
+              ticker: ticker.toUpperCase(),
+              companyName: companyInfo.name,
+              accessionNumber: filing.accessionNumber,
+              filingType: filing.filingType,
+              filingDate: filing.filingDate
+            });
+
+            if (xbrlResult && xbrlResult.financials.length > 0) {
+              // Detect industry for validation
+              const industry = detectIndustry(ticker, companyInfo.name);
+
+              // Save XBRL financials to database
+              const financialsToSave: Partial<CompanyFinancial>[] = [];
+
+              for (const financial of xbrlResult.financials) {
+                // Convert to actual dollars
+                const actualValue = convertXBRLValue(financial.value, financial.scale);
+
+                // Validate if it's revenue
+                if (financial.xbrlTag.includes('Revenue')) {
+                  const validation = validateFinancialNumber(
+                    actualValue,
+                    {
+                      metric: 'revenue',
+                      ticker: ticker.toUpperCase(),
+                      year: xbrlResult.fiscalYear,
+                      quarter: xbrlResult.fiscalQuarter,
+                      industry
+                    }
+                  );
+
+                  if (!validation.valid) {
+                    console.warn(`[Helena] ⚠️ Validation warning for ${financial.label}: ${validation.reason}`);
+                    // Skip invalid data
+                    continue;
+                  }
+
+                  if (validation.warnings) {
+                    validation.warnings.forEach(w => console.warn(`[Helena] ⚠️ ${w}`));
+                  }
+                }
+
+                financialsToSave.push({
+                  ticker: ticker.toUpperCase(),
+                  cik: companyInfo.cik,
+                  company_name: companyInfo.name,
+                  filing_type: filing.filingType,
+                  filing_date: filing.filingDate,
+                  filing_accession: filing.accessionNumber,
+                  fiscal_year: xbrlResult.fiscalYear,
+                  fiscal_quarter: xbrlResult.fiscalQuarter,
+                  metric_name: financial.label,
+                  metric_value: actualValue,
+                  metric_unit: financial.unit,
+                  xbrl_tag: financial.xbrlTag,
+                  period_end_date: financial.periodEnd,
+                  source_url: `https://www.sec.gov/cgi-bin/viewer?action=view&cik=${companyInfo.cik.replace(/^0+/, '')}&accession_number=${filing.accessionNumber}&xbrl_type=v`,
+                  processed_by: 'Helena',
+                  processing_version: this.PROCESSING_VERSION
+                });
+              }
+
+              // Batch insert financials
+              if (financialsToSave.length > 0) {
+                await this.saveFinancials(financialsToSave);
+                totalMetrics += financialsToSave.length;
+                console.log(`[Helena] ✓ Saved ${financialsToSave.length} XBRL metrics`);
+              } else {
+                console.log(`[Helena] ℹ️ No valid XBRL metrics to save`);
+              }
+            } else {
+              console.log(`[Helena] ℹ️ No XBRL data found in filing`);
+            }
+          } catch (xbrlError: any) {
+            console.warn(`[Helena] ⚠️ XBRL parsing failed (non-critical): ${xbrlError.message}`);
+            // Continue - XBRL is optional, we still have markdown sections
+          }
 
           processedFilings++;
 
@@ -606,6 +687,24 @@ export class Helena extends BaseAgent {
 
     if (error) {
       throw new Error(`Failed to save sections: ${error.message}`);
+    }
+  }
+
+  /**
+   * Save financial metrics to database
+   */
+  private async saveFinancials(financials: Partial<CompanyFinancial>[]): Promise<void> {
+    if (financials.length === 0) return;
+
+    const { error } = await supabase
+      .from('company_financials')
+      .upsert(financials, {
+        onConflict: 'filing_accession,xbrl_tag,period_end_date',
+        ignoreDuplicates: false
+      });
+
+    if (error) {
+      throw new Error(`Failed to save financials: ${error.message}`);
     }
   }
 

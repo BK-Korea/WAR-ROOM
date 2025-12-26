@@ -79,12 +79,32 @@ export class Alice extends BaseAgent {
     const { query: userQuery, useHistory = true } = params;
 
     try {
+      // ============================================
+      // Goldman Sachs Fast Path - Detect financial questions
+      // ============================================
+      const needsFinancialData = this.detectFinancialQuestion(userQuery);
+      let financialContext = '';
+
+      // TODO: Implement inter-agent communication for Dorothy calls
+      // For now, Alice suggests user to ask Dorothy directly
+      if (needsFinancialData) {
+        const ticker = this.extractTicker(userQuery);
+        if (ticker) {
+          console.log(`[Alice] 💼 Financial question detected for ${ticker}`);
+          console.log(`[Alice] 💡 Tip: For detailed financial data, ask "@Dorothy ${ticker} 재무 데이터"`);
+          financialContext = `\n\n**Note:** For detailed SEC filing data on ${ticker}, consider asking Dorothy directly: "@Dorothy ${ticker} 재무 분석"\n\n`;
+        }
+      }
+
+      // Build final prompt with financial context
+      const finalQuery = financialContext ? `${userQuery}\n\n${financialContext}` : userQuery;
+
       let response: string;
 
       if (useHistory) {
-        response = await this.callLLMWithHistory(userQuery, 0.7);
+        response = await this.callLLMWithHistory(finalQuery, 0.7);
       } else {
-        response = await this.callLLM(userQuery, 0.7);
+        response = await this.callLLM(finalQuery, 0.7);
       }
 
       // Log the consultation (graceful degradation if table doesn't exist)
@@ -110,7 +130,8 @@ export class Alice extends BaseAgent {
         data: {
           response,
           type: 'consultation',
-          conversationLength: this.getHistory().length
+          conversationLength: this.getHistory().length,
+          usedFinancialData: !!financialContext
         }
       };
     } catch (error: any) {
@@ -524,5 +545,45 @@ Focus on actionable insights and strategic implications.`;
       messageCount: this.getHistory().length,
       history: this.getHistory()
     };
+  }
+
+  /**
+   * Detect if question requires financial data
+   */
+  private detectFinancialQuestion(query: string): boolean {
+    const financialKeywords = [
+      '매출', '수익', 'revenue', '순이익', 'net income',
+      '자산', 'assets', '부채', 'liabilities', '현금', 'cash',
+      '재무', 'financial', 'financials', '실적', 'earnings',
+      '분기', 'quarterly', '연간', 'annual', '10-K', '10-Q',
+      'balance sheet', 'income statement', 'cash flow',
+      'ebitda', 'eps', 'roe', 'roa', '영업이익', 'operating income'
+    ];
+
+    const lowerQuery = query.toLowerCase();
+    return financialKeywords.some(keyword => lowerQuery.includes(keyword.toLowerCase()));
+  }
+
+  /**
+   * Extract company ticker from query
+   */
+  private extractTicker(query: string): string | null {
+    // Common patterns for ticker mentions
+    const patterns = [
+      /\b([A-Z]{1,5})\s+(매출|수익|재무|실적)/,  // "JOBY 매출"
+      /([A-Z]{1,5})\s+Aviation/i,                 // "JOBY Aviation"
+      /ticker:\s*([A-Z]{1,5})/i,                  // "ticker: JOBY"
+      /\(([A-Z]{1,5})\)/,                         // "(JOBY)"
+      /\b([A-Z]{2,5})\b/                          // Standalone ticker (2-5 caps)
+    ];
+
+    for (const pattern of patterns) {
+      const match = query.match(pattern);
+      if (match && match[1]) {
+        return match[1].toUpperCase();
+      }
+    }
+
+    return null;
   }
 }

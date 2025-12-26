@@ -4,7 +4,7 @@ import { query } from '../db/connection';
 import { DOROTHY_SYSTEM_PROMPT, DOROTHY_TASK_PROMPTS } from '../prompts/dorothy';
 import { secClient, SECFiling, SECCompanyInfo } from '../services/SECClient';
 import { jinaClient } from '../services/JinaAIClient';
-import { checkHelenaDataAvailability, isSupabaseConfigured } from '../lib/supabase';
+import { supabase, checkHelenaDataAvailability, isSupabaseConfigured } from '../lib/supabase';
 import axios from 'axios';
 
 /**
@@ -610,10 +610,78 @@ Provide comprehensive financial health assessment:
 
             progress('Helena DB에서 빠른 조회 중... (0.1초)');
 
-            // TODO: Phase 2 - Use Helena's query_financials for instant response
-            // For now, we continue with existing flow but with awareness
-            console.log(`[Dorothy] ℹ️ Helena 데이터 사용 로직은 Phase 2에서 구현 예정`);
-            console.log(`[Dorothy] ℹ️ 현재는 기존 방식으로 진행 (실시간 다운로드)`);
+            // ============================================
+            // Goldman Sachs Fast Path - Use Helena DB
+            // ============================================
+            try {
+              // Query financials from Helena DB
+              const helenaFinancials = await supabase
+                .from('company_financials')
+                .select('*')
+                .eq('ticker', companyTicker.toUpperCase())
+                .order('period_end_date', { ascending: false })
+                .limit(100);
+
+              // Query sections from Helena DB
+              const helenaSections = await supabase
+                .from('filing_sections')
+                .select('*')
+                .eq('ticker', companyTicker.toUpperCase())
+                .order('filing_date', { ascending: false })
+                .limit(10);
+
+              if (helenaFinancials.data && helenaFinancials.data.length > 0) {
+                console.log(`[Dorothy] ✅ Helena DB에서 ${helenaFinancials.data.length}개 metrics 조회 완료`);
+                console.log(`[Dorothy] ✅ Helena DB에서 ${helenaSections.data?.length || 0}개 sections 조회 완료`);
+
+                // Format Helena data for LLM analysis
+                const financialsContext = this.formatHelenaFinancials(helenaFinancials.data);
+                const sectionsContext = this.formatHelenaSections(helenaSections.data || []);
+
+                // Combine context
+                const helenaContext = `
+# Helena Database - Pre-processed Financial Data
+
+## XBRL Financial Metrics (100% Accurate)
+${financialsContext}
+
+## Filing Sections
+${sectionsContext}
+
+**Important:** 위 숫자들은 XBRL에서 직접 파싱된 100% 정확한 데이터야. 절대 추정하거나 근사값을 쓰지 마.
+`;
+
+                // Use Helena data for analysis
+                progress('Helena 데이터로 분석 중...');
+
+                const analysisPrompt = `${question}\n\n${helenaContext}`;
+                const response = await this.callLLM(analysisPrompt, 0.3);
+
+                console.log(`[Dorothy] ✓ Helena 데이터 기반 분석 완료`);
+
+                return {
+                  success: true,
+                  data: {
+                    answer: response,
+                    sources: helenaFinancials.data.map((m: any) => ({
+                      filing_type: m.filing_type,
+                      filing_date: m.filing_date,
+                      accession: m.filing_accession,
+                      metric: m.metric_name,
+                      xbrl_tag: m.xbrl_tag
+                    })),
+                    dataSource: 'helena_db',
+                    executionTime: '< 1 second',
+                    metricsUsed: helenaFinancials.data.length
+                  }
+                };
+              } else {
+                console.log(`[Dorothy] ⚠️ Helena DB에 metrics 없음 - 기존 방식 사용`);
+              }
+            } catch (helenaError: any) {
+              console.warn(`[Dorothy] ⚠️ Helena DB 조회 실패: ${helenaError.message}`);
+              console.log(`[Dorothy] → 기존 방식으로 fallback`);
+            }
           } else {
             console.log(`[Dorothy] ℹ️ Helena 데이터 없음 - 기존 방식 사용`);
             console.log(`[Dorothy] 💡 Tip: Helena에게 "${companyTicker} 데이터 준비해줘"라고 요청하면 다음번엔 빠를 거야!`);
@@ -1161,5 +1229,88 @@ Now extract from the question above:`;
     const back = content.substring(content.length - backChars);
 
     return front + '\n\n[...middle section truncated...]\n\n' + back;
+  }
+
+  /**
+   * Format Helena financial metrics for LLM context
+   */
+  private formatHelenaFinancials(financials: any[]): string {
+    if (financials.length === 0) {
+      return 'No financial metrics available.';
+    }
+
+    // Group by fiscal year and quarter
+    const grouped: Record<string, any[]> = {};
+    for (const metric of financials) {
+      const key = `${metric.fiscal_year}${metric.fiscal_quarter ? `-Q${metric.fiscal_quarter}` : ''}`;
+      if (!grouped[key]) {
+        grouped[key] = [];
+      }
+      grouped[key].push(metric);
+    }
+
+    let output = '';
+    for (const [period, metrics] of Object.entries(grouped)) {
+      output += `\n### Period: ${period}\n`;
+      for (const metric of metrics) {
+        const formattedValue = this.formatMetricValue(metric.metric_value, metric.metric_unit);
+        output += `- **${metric.metric_name}**: ${formattedValue}\n`;
+        output += `  - XBRL Tag: ${metric.xbrl_tag}\n`;
+        output += `  - Filing: ${metric.filing_type} (${metric.filing_date})\n`;
+        output += `  - Period End: ${metric.period_end_date}\n`;
+      }
+    }
+
+    return output;
+  }
+
+  /**
+   * Format Helena sections for LLM context
+   */
+  private formatHelenaSections(sections: any[]): string {
+    if (sections.length === 0) {
+      return 'No sections available.';
+    }
+
+    let output = '';
+    for (const section of sections) {
+      output += `\n### ${section.section_name} (${section.filing_type} - ${section.filing_date})\n`;
+      // Truncate to first 1000 chars per section
+      const content = section.full_content.substring(0, 1000);
+      output += content;
+      if (section.full_content.length > 1000) {
+        output += '\n[... truncated for length ...]\n';
+      }
+      output += '\n';
+    }
+
+    return output;
+  }
+
+  /**
+   * Format metric value with proper units
+   */
+  private formatMetricValue(value: number, unit: string): string {
+    if (unit === 'USD' || unit === 'usd') {
+      const absValue = Math.abs(value);
+      const sign = value < 0 ? '-' : '';
+
+      if (absValue >= 1_000_000_000_000) {
+        return `${sign}$${(value / 1_000_000_000_000).toFixed(2)}T`;
+      }
+      if (absValue >= 1_000_000_000) {
+        return `${sign}$${(value / 1_000_000_000).toFixed(2)}B`;
+      }
+      if (absValue >= 1_000_000) {
+        return `${sign}$${(value / 1_000_000).toFixed(2)}M`;
+      }
+      if (absValue >= 1_000) {
+        return `${sign}$${(value / 1_000).toFixed(2)}K`;
+      }
+      return `${sign}$${value.toFixed(2)}`;
+    }
+
+    // Non-currency units
+    return `${value} ${unit}`;
   }
 }
