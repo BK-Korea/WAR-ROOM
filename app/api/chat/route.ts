@@ -265,32 +265,59 @@ export async function POST(req: NextRequest) {
                 console.log('[Helena] 질문:', message);
 
                 // ============================================
-                // Extract ticker from message or conversation history
+                // Extract ticker/company name from message or conversation history
+                // Supports: ticker symbols (AAPL), Korean (애플), English (Apple)
+                // SECClient will use LLM to convert natural language to ticker
                 // ============================================
                 let ticker: string | null = null;
 
+                // Reserved words that are NOT tickers
+                const RESERVED_WORDS = new Set([
+                  'SEC', 'API', 'USA', 'CEO', 'CFO', 'IPO', 'ETF', 'LLC', 'INC', 'LTD',
+                  'THE', 'AND', 'FOR', 'WITH', 'DATA', 'YEAR', 'FILE'
+                ]);
+
                 // Try current message first
-                const tickerMatch = message.match(/([A-Za-z]{2,5})(?:\s|$)/i);
-                ticker = tickerMatch ? tickerMatch[1].toUpperCase() : null;
+                console.log('[Helena] Extracting ticker/company from message:', message);
+
+                // Step 1: Try to find Korean company name (highest priority - unambiguous)
+                const koreanMatch = message.match(/([가-힣]{2,10})/);
+                if (koreanMatch) {
+                  ticker = koreanMatch[1];
+                  console.log(`[Helena] ✓ Found Korean company name: ${ticker}`);
+                } else {
+                  // Step 2: Try to find uppercase ticker symbol (filter reserved words)
+                  const uppercaseMatches = message.match(/\b[A-Z]{2,5}\b/g);
+                  if (uppercaseMatches) {
+                    for (const candidate of uppercaseMatches) {
+                      if (!RESERVED_WORDS.has(candidate)) {
+                        ticker = candidate;
+                        console.log(`[Helena] ✓ Found ticker symbol: ${ticker}`);
+                        break;
+                      }
+                    }
+                  }
+                }
 
                 // If not found, search conversation history (recent to old)
                 if (!ticker && history.length > 0) {
                   console.log('[Helena] Ticker not in message, searching history...');
 
-                  // Reserved words that are NOT tickers
-                  const RESERVED_WORDS = new Set([
-                    'SEC', 'API', 'USA', 'CEO', 'CFO', 'IPO', 'ETF', 'LLC', 'INC', 'LTD',
-                    'THE', 'AND', 'FOR', 'WITH', 'DATA', 'YEAR', 'FILE'
-                  ]);
-
                   // Search user messages in reverse order (most recent first)
                   for (let i = history.length - 1; i >= 0; i--) {
                     const msg = history[i];
                     if (msg.role === 'user') {
-                      // Extract all potential tickers (2-5 uppercase letters)
+                      // Priority 1: Try Korean company name
+                      const historyKoreanMatch = msg.content.match(/([가-힣]{2,10})/);
+                      if (historyKoreanMatch) {
+                        ticker = historyKoreanMatch[1];
+                        console.log(`[Helena] ✓ Found Korean company in history: ${ticker} (from: "${msg.content.substring(0, 50)}...")`);
+                        break;
+                      }
+
+                      // Priority 2: Try ticker symbols (filter reserved words)
                       const potentialTickers = msg.content.match(/\b[A-Z]{2,5}\b/g);
                       if (potentialTickers) {
-                        // Find first valid ticker (not a reserved word)
                         for (const candidate of potentialTickers) {
                           if (!RESERVED_WORDS.has(candidate)) {
                             ticker = candidate;
