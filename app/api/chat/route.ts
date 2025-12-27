@@ -286,22 +286,25 @@ export async function POST(req: NextRequest) {
                 const cleanMessage = message.replace(/@[A-Za-z가-힣]+/g, '').trim();
                 console.log('[Helena] Message after removing @mentions:', cleanMessage);
 
-                // Step 1: Try to find Korean company name (highest priority - unambiguous)
-                const koreanMatch = cleanMessage.match(/([가-힣]{2,10})/);
-                if (koreanMatch) {
-                  ticker = koreanMatch[1];
-                  console.log(`[Helena] ✓ Found Korean company name: ${ticker}`);
-                } else {
-                  // Step 2: Try to find uppercase ticker symbol (filter reserved words)
-                  const uppercaseMatches = cleanMessage.match(/\b[A-Z]{2,5}\b/g);
-                  if (uppercaseMatches) {
-                    for (const candidate of uppercaseMatches) {
-                      if (!RESERVED_WORDS.has(candidate)) {
-                        ticker = candidate;
-                        console.log(`[Helena] ✓ Found ticker symbol: ${ticker}`);
-                        break;
-                      }
+                // Step 1: Try to find uppercase ticker symbol FIRST (AAPL, JOBY, etc.)
+                // This has priority because it's more explicit
+                const uppercaseMatches = cleanMessage.match(/\b[A-Z]{2,5}\b/g);
+                if (uppercaseMatches) {
+                  for (const candidate of uppercaseMatches) {
+                    if (!RESERVED_WORDS.has(candidate)) {
+                      ticker = candidate;
+                      console.log(`[Helena] ✓ Found ticker symbol: ${ticker}`);
+                      break;
                     }
+                  }
+                }
+
+                // Step 2: If no ticker found, try Korean company name (애플, 조비, etc.)
+                if (!ticker) {
+                  const koreanMatch = cleanMessage.match(/([가-힣]{2,10})/);
+                  if (koreanMatch) {
+                    ticker = koreanMatch[1];
+                    console.log(`[Helena] ✓ Found Korean company name: ${ticker}`);
                   }
                 }
 
@@ -313,15 +316,7 @@ export async function POST(req: NextRequest) {
                   for (let i = history.length - 1; i >= 0; i--) {
                     const msg = history[i];
                     if (msg.role === 'user') {
-                      // Priority 1: Try Korean company name
-                      const historyKoreanMatch = msg.content.match(/([가-힣]{2,10})/);
-                      if (historyKoreanMatch) {
-                        ticker = historyKoreanMatch[1];
-                        console.log(`[Helena] ✓ Found Korean company in history: ${ticker} (from: "${msg.content.substring(0, 50)}...")`);
-                        break;
-                      }
-
-                      // Priority 2: Try ticker symbols (filter reserved words)
+                      // Priority 1: Try ticker symbols FIRST (more explicit)
                       const potentialTickers = msg.content.match(/\b[A-Z]{2,5}\b/g);
                       if (potentialTickers) {
                         for (const candidate of potentialTickers) {
@@ -332,6 +327,16 @@ export async function POST(req: NextRequest) {
                           }
                         }
                         if (ticker) break;
+                      }
+
+                      // Priority 2: Try Korean company name (fallback)
+                      if (!ticker) {
+                        const historyKoreanMatch = msg.content.match(/([가-힣]{2,10})/);
+                        if (historyKoreanMatch) {
+                          ticker = historyKoreanMatch[1];
+                          console.log(`[Helena] ✓ Found Korean company in history: ${ticker} (from: "${msg.content.substring(0, 50)}...")`);
+                          break;
+                        }
                       }
                     }
                   }
