@@ -149,7 +149,7 @@ function selectAgents(message: string): string[] {
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, model } = await req.json();
+    const { message, model, history = [] } = await req.json();
 
     if (!message) {
       return NextResponse.json(
@@ -160,6 +160,7 @@ export async function POST(req: NextRequest) {
 
     console.log('\n═══════════════════════════════════════════════════');
     console.log(`[WAR-ROOM] 새 질문 받음: "${message}"`);
+    console.log(`[WAR-ROOM] 대화 히스토리: ${history.length}개 메시지`);
     console.log('═══════════════════════════════════════════════════\n');
 
     // Create a streaming response
@@ -206,6 +207,7 @@ export async function POST(req: NextRequest) {
                   'answer_question',
                   {
                     question: message,
+                    history, // Pass conversation history for context
                     onProgress,  // Pass progress callback
                   },
                   context
@@ -240,12 +242,35 @@ export async function POST(req: NextRequest) {
                 console.log('\n[Helena] ▶ 시작: SEC 데이터 준비 및 큐레이션');
                 console.log('[Helena] 질문:', message);
 
-                // Extract ticker from message (case-insensitive)
+                // ============================================
+                // Extract ticker from message or conversation history
+                // ============================================
+                let ticker: string | null = null;
+
+                // Try current message first
                 const tickerMatch = message.match(/([A-Za-z]{2,5})(?:\s|$)/i);
-                const ticker = tickerMatch ? tickerMatch[1].toUpperCase() : null;
+                ticker = tickerMatch ? tickerMatch[1].toUpperCase() : null;
+
+                // If not found, search conversation history (recent to old)
+                if (!ticker && history.length > 0) {
+                  console.log('[Helena] Ticker not in message, searching history...');
+
+                  // Search user messages in reverse order (most recent first)
+                  for (let i = history.length - 1; i >= 0; i--) {
+                    const msg = history[i];
+                    if (msg.role === 'user') {
+                      const historyTickerMatch = msg.content.match(/([A-Za-z]{2,5})(?:\s|$)/i);
+                      if (historyTickerMatch) {
+                        ticker = historyTickerMatch[1].toUpperCase();
+                        console.log(`[Helena] ✓ Found ticker in history: ${ticker} (from: "${msg.content.substring(0, 50)}...")`);
+                        break;
+                      }
+                    }
+                  }
+                }
 
                 if (!ticker) {
-                  content = '❌ Ticker symbol을 찾을 수 없어. 예: "@Helena JOBY 데이터 준비해줘"';
+                  content = '❌ Ticker symbol을 찾을 수 없어.\n\n예: "@Helena JOBY 데이터 준비해줘"';
                   responses.push({
                     agent: 'Helena',
                     content,
@@ -314,6 +339,7 @@ export async function POST(req: NextRequest) {
                   'consult',
                   {
                     query: message,
+                    history, // Pass conversation history for context
                     useHistory: false,
                   },
                   context

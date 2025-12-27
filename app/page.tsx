@@ -109,6 +109,9 @@ export default function ChatPage() {
     setLoadingStatus('에이전트 시작 중...');
 
     try {
+      // Get recent conversation history for context (last 10 messages)
+      const recentHistory = currentConversation?.messages.slice(-10) || [];
+
       // Use fetch with streaming (SSE)
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -116,6 +119,7 @@ export default function ChatPage() {
         body: JSON.stringify({
           message: input,
           model: storage.selectedModel,
+          history: recentHistory, // Send conversation context
         }),
       });
 
