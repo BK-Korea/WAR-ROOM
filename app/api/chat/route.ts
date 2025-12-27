@@ -238,9 +238,9 @@ export async function POST(req: NextRequest) {
                 console.log('\n[Helena] ▶ 시작: SEC 데이터 준비 및 큐레이션');
                 console.log('[Helena] 질문:', message);
 
-                // Extract ticker from message (simple pattern matching)
-                const tickerMatch = message.match(/([A-Z]{2,5})(?:\s|$)/);
-                const ticker = tickerMatch ? tickerMatch[1] : null;
+                // Extract ticker from message (case-insensitive)
+                const tickerMatch = message.match(/([A-Za-z]{2,5})(?:\s|$)/i);
+                const ticker = tickerMatch ? tickerMatch[1].toUpperCase() : null;
 
                 if (!ticker) {
                   content = '❌ Ticker symbol을 찾을 수 없어. 예: "@Helena JOBY 데이터 준비해줘"';
