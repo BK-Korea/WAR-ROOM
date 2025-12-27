@@ -13,27 +13,82 @@ async function getWarRoom() {
   return warRoomInstance;
 }
 
+// ============================================
+// Agent Name Mapping (English ↔ Korean)
+// ============================================
+const AGENT_NAME_MAP: Record<string, string> = {
+  // English names
+  'alice': 'Alice',
+  'dorothy': 'Dorothy',
+  'belle': 'Belle',
+  'anna': 'Anna',
+  'wendy': 'Wendy',
+  'aurora': 'Aurora',
+  'elsa': 'Elsa',
+  'amy': 'Amy',
+  'helena': 'Helena',
+
+  // Korean names
+  '앨리스': 'Alice',
+  '도로시': 'Dorothy',
+  '벨': 'Belle',
+  '안나': 'Anna',
+  '웬디': 'Wendy',
+  '오로라': 'Aurora',
+  '엘사': 'Elsa',
+  '에이미': 'Amy',
+  '헬레나': 'Helena',
+
+  // Aliases
+  '엘리스': 'Alice', // 앨리스 오타 대응
+  '헬렌': 'Helena',
+};
+
+const ALL_AGENTS = ['Alice', 'Dorothy', 'Belle', 'Anna', 'Wendy', 'Aurora', 'Elsa', 'Amy', 'Helena'];
+
 // 질문을 분석해서 적합한 에이전트 선택
 function selectAgents(message: string): string[] {
   const lowerMessage = message.toLowerCase();
   const agents: string[] = [];
 
   // ============================================
-  // Priority 1: @mention 파싱
+  // Priority 1: @mention 파싱 (영어/한글 지원 + @all + 멀티)
   // ============================================
-  const mentionMatch = message.match(/@([A-Za-z]+)/i);
-  if (mentionMatch) {
-    const mentionedAgent = mentionMatch[1];
-    const normalizedName = mentionedAgent.charAt(0).toUpperCase() + mentionedAgent.slice(1).toLowerCase();
 
-    // Valid agent names
-    const validAgents = ['Alice', 'Dorothy', 'Belle', 'Anna', 'Wendy', 'Aurora', 'Elsa', 'Amy', 'Helena'];
+  // Check for @all
+  if (/@all/i.test(message) || /@전체/i.test(message)) {
+    console.log(`[Agent Selection] ✅ @all detected - calling all agents`);
+    return ALL_AGENTS;
+  }
 
-    if (validAgents.includes(normalizedName)) {
-      console.log(`[Agent Selection] ✅ @mention detected: ${normalizedName}`);
-      return [normalizedName];
-    } else {
-      console.warn(`[Agent Selection] ⚠️ Unknown agent mentioned: @${mentionedAgent}`);
+  // Extract all @mentions (supports English, Korean, comma-separated)
+  // Pattern: @이름1,@이름2 or @이름1, @이름2 or @이름1 @이름2
+  const mentionPattern = /@([A-Za-z가-힣]+)/gi;
+  const mentions = [...message.matchAll(mentionPattern)];
+
+  if (mentions.length > 0) {
+    console.log(`[Agent Selection] 📝 Found ${mentions.length} @mentions`);
+
+    for (const match of mentions) {
+      const mentionedName = match[1];
+      const lowerMention = mentionedName.toLowerCase();
+
+      // Try to map to agent name (English or Korean)
+      const agentName = AGENT_NAME_MAP[lowerMention] || AGENT_NAME_MAP[mentionedName];
+
+      if (agentName) {
+        if (!agents.includes(agentName)) {
+          agents.push(agentName);
+          console.log(`[Agent Selection] ✅ Matched: @${mentionedName} → ${agentName}`);
+        }
+      } else {
+        console.warn(`[Agent Selection] ⚠️ Unknown agent mentioned: @${mentionedName}`);
+      }
+    }
+
+    if (agents.length > 0) {
+      console.log(`[Agent Selection] 🎯 Selected agents via @mention: ${agents.join(', ')}`);
+      return agents;
     }
   }
 
@@ -273,6 +328,49 @@ export async function POST(req: NextRequest) {
                     emoji: '💡',
                     status: '전략 분석 완료'
                   });
+                }
+              } else {
+                // ============================================
+                // Other agents (Belle, Anna, Wendy, Aurora, Elsa, Amy)
+                // ============================================
+                const agentConfig: Record<string, { emoji: string; description: string; task: string }> = {
+                  'Belle': { emoji: '🔍', description: '시장 정보 수집가', task: 'gather_intelligence' },
+                  'Anna': { emoji: '⚖️', description: '규제 준수 전문가', task: 'check_compliance' },
+                  'Wendy': { emoji: '📋', description: '회의 관리자', task: 'manage_meeting' },
+                  'Aurora': { emoji: '⚙️', description: '운영 최적화 전문가', task: 'optimize_operations' },
+                  'Elsa': { emoji: '🛡️', description: '리스크 관리자', task: 'assess_risk' },
+                  'Amy': { emoji: '📖', description: '프로젝트 히스토리 관리자', task: 'track_history' }
+                };
+
+                const config = agentConfig[agentName];
+                if (config) {
+                  sendEvent('status', { agent: agentName, message: `${agentName} (${config.description}) 시작...` });
+                  console.log(`\n[${agentName}] ▶ 시작: ${config.description}`);
+                  console.log(`[${agentName}] 질문:`, message);
+
+                  result = await warRoom.executeTask(
+                    agentName,
+                    config.task,
+                    { query: message },
+                    context
+                  );
+
+                  console.log(`[${agentName}] ✓ 완료:`, result.success ? '성공' : '실패');
+
+                  content = result.success
+                    ? (result.data?.response || result.data?.answer || '응답이 없어')
+                    : `❌ ${result.error}`;
+
+                  if (result.success || result.error) {
+                    responses.push({
+                      agent: agentName,
+                      content,
+                      emoji: config.emoji,
+                      status: result.success ? '완료' : '오류'
+                    });
+                  }
+                } else {
+                  console.warn(`[${agentName}] ⚠️ Agent not configured for API route`);
                 }
               }
             } catch (agentError) {
