@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { query } from '../db/connection';
 import { jinaClient } from './JinaAIClient';
+import { glmClient } from '../llm/GLMClient';
 
 /**
  * SEC Edgar API Client
@@ -63,8 +64,65 @@ export class SECClient {
   }
 
   /**
+   * LLM-based company name → ticker extraction
+   * Uses GLM API to understand natural language (Korean, English, etc.)
+   */
+  private async extractTickerWithLLM(input: string): Promise<string | null> {
+    try {
+      console.log(`[SEC Client] 🤖 Using LLM to extract ticker from: "${input}"`);
+
+      const prompt = `당신은 금융 데이터 전문가입니다. 사용자의 자연어 입력에서 미국 주식 ticker symbol을 추출하세요.
+
+입력: "${input}"
+
+규칙:
+1. 한글 회사명 → 영문 ticker로 변환
+   예: "애플" → AAPL, "테슬라" → TSLA, "조비" → JOBY
+2. 영문 회사명 → ticker로 변환
+   예: "Apple" → AAPL, "Joby Aviation" → JOBY
+3. 이미 ticker인 경우 → 그대로 반환
+   예: "AAPL" → AAPL, "TSLA" → TSLA
+4. 여러 회사가 언급되면 첫 번째 회사 사용
+5. 회사명을 찾을 수 없으면 null 반환
+
+JSON만 반환하세요:
+{"ticker": "AAPL", "company": "Apple Inc.", "confidence": "high"}
+또는
+{"ticker": null, "company": null, "confidence": "none"}`;
+
+      const response = await glmClient.chat({
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1, // Very low for consistent extraction
+      });
+
+      console.log(`[SEC Client] 🤖 LLM response:`, response);
+
+      // Parse JSON from response
+      const jsonMatch = response.match(/\{[^}]*"ticker"[^}]*\}/);
+      if (!jsonMatch) {
+        console.warn('[SEC Client] ⚠️ Failed to parse LLM response');
+        return null;
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      if (!parsed.ticker || parsed.ticker === 'null') {
+        console.log('[SEC Client] ℹ️ LLM could not extract ticker');
+        return null;
+      }
+
+      console.log(`[SEC Client] ✅ LLM extracted: ${parsed.ticker} (${parsed.company}, confidence: ${parsed.confidence})`);
+      return parsed.ticker.toUpperCase();
+
+    } catch (error: any) {
+      console.error('[SEC Client] ❌ LLM ticker extraction failed:', error.message);
+      return null;
+    }
+  }
+
+  /**
    * Get company info by ticker symbol or company name
-   * Uses SEC's official company_tickers.json API (fast and reliable)
+   * Uses LLM + SEC's official company_tickers.json API
    */
   async getCompanyByTicker(ticker: string): Promise<SECCompanyInfo | null> {
     await this.rateLimit();
@@ -72,27 +130,21 @@ export class SECClient {
     console.log(`[SEC Client] Looking up ticker/company: ${ticker}`);
 
     // ============================================
-    // Korean → English Ticker Mapping (Goldman Sachs-grade)
+    // Step 1: LLM-based ticker extraction (handles Korean, English, natural language)
     // ============================================
-    const KOREAN_TICKER_MAP: Record<string, string> = {
-      '애플': 'AAPL',
-      '테슬라': 'TSLA',
-      '마이크로소프트': 'MSFT',
-      '구글': 'GOOGL',
-      '아마존': 'AMZN',
-      '메타': 'META',
-      '페이스북': 'META',
-      '엔비디아': 'NVDA',
-      '넷플릭스': 'NFLX',
-      '조비': 'JOBY',
-      '조비에비에이션': 'JOBY',
-    };
+    const hasNonASCII = /[^\x00-\x7F]/.test(ticker);
+    const looksLikeNaturalLanguage = ticker.length > 5 || hasNonASCII || /\s/.test(ticker);
 
-    const lowerTicker = ticker.toLowerCase();
-    if (KOREAN_TICKER_MAP[lowerTicker]) {
-      const englishTicker = KOREAN_TICKER_MAP[lowerTicker];
-      console.log(`[SEC Client] ✓ Korean name detected: "${ticker}" → ${englishTicker}`);
-      ticker = englishTicker;
+    if (looksLikeNaturalLanguage) {
+      console.log('[SEC Client] 🤖 Input looks like natural language, using LLM...');
+      const extractedTicker = await this.extractTickerWithLLM(ticker);
+
+      if (extractedTicker) {
+        console.log(`[SEC Client] ✓ LLM extracted ticker: ${extractedTicker}`);
+        ticker = extractedTicker;
+      } else {
+        console.log('[SEC Client] ⚠️ LLM could not extract ticker, trying direct search...');
+      }
     }
 
     // Try direct CIK lookup first (some tickers are numeric CIKs)
@@ -108,9 +160,11 @@ export class SECClient {
       }
     }
 
-    // Use SEC's official company_tickers.json API
+    // ============================================
+    // Step 2: SEC company_tickers.json lookup
+    // ============================================
     try {
-      console.log(`[SEC Client] Fetching company_tickers.json from SEC...`);
+      console.log(`[SEC Client] 📋 Fetching company_tickers.json from SEC...`);
       const response = await axios.get('https://www.sec.gov/files/company_tickers.json', {
         headers: {
           'User-Agent': this.userAgent,
@@ -135,32 +189,9 @@ export class SECClient {
         }
       }
 
-      // If no exact ticker match, try company name search (fuzzy)
-      // IMPORTANT: Only for exact English company names, NOT Korean
-      if (!matchedEntry) {
-        const lowerQuery = ticker.toLowerCase();
-
-        // Skip fuzzy matching if query contains non-ASCII (Korean, Chinese, etc.)
-        const hasNonASCII = /[^\x00-\x7F]/.test(ticker);
-        if (hasNonASCII) {
-          console.log(`[SEC Client] ✗ Non-English input: "${ticker}"`);
-          console.log(`[SEC Client] 💡 Hint: Use English ticker (AAPL) or add to Korean mapping`);
-          return null;
-        }
-
-        // Fuzzy match English company names only
-        for (const key in tickers) {
-          const entry = tickers[key];
-          if (entry.title && entry.title.toLowerCase().includes(lowerQuery)) {
-            matchedEntry = entry;
-            console.log(`[SEC Client] ✓ Found company name match: ${entry.title} (CIK: ${entry.cik_str})`);
-            break;
-          }
-        }
-      }
-
       if (!matchedEntry) {
         console.log(`[SEC Client] ✗ No matching company found for: ${ticker}`);
+        console.log(`[SEC Client] 💡 Hint: Make sure LLM extracted correct ticker`);
         return null;
       }
 
