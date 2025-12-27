@@ -348,7 +348,7 @@ export default function ChatPage() {
                 </div>
                 <h2 className="text-2xl font-semibold text-gray-200">Welcome to WAR-ROOM</h2>
                 <p className="text-gray-500 max-w-md">
-                  Your AI-powered strategic analysis platform. Ask Dorothy and Alice anything.
+                  Your AI-powered strategic analysis platform. Let's start the WAR-ROOM!
                 </p>
               </div>
             ) : (
@@ -423,7 +423,7 @@ export default function ChatPage() {
                       handleSend();
                     }
                   }}
-                  placeholder="Ask Dorothy or Alice anything..."
+                  placeholder="Let's start the WAR-ROOM..."
                   className="w-full px-6 py-4 bg-white/5 border border-white/10 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent resize-none text-[15px] leading-relaxed placeholder:text-gray-500 transition-all hover:bg-white/10"
                   rows={1}
                   style={{
