@@ -114,10 +114,12 @@ function selectAgents(message: string): string[] {
     '리스크', '기회', '위협', '강점', '약점', 'swot', '포트폴리오'
   ];
 
-  // Helena (SEC Data Curator) - 데이터 준비, 수집, 전처리 관련
+  // Helena (SEC Data Curator) - 데이터 준비, 수집, 전처리, 재처리 관련
   const helenaKeywords = [
     '데이터 준비', '데이터 수집', 'prepare data', '전처리', 'preprocessing',
-    'filing 다운로드', 'download filing', 'xbrl', '데이터베이스', 'database'
+    'filing 다운로드', 'download filing', 'xbrl', '데이터베이스', 'database',
+    '재처리', 'refresh', 'forcerefresh', '다시', '업데이트', 'update',
+    '데이터 받아', '데이터 다운', '파싱', 'parse', 'sec 데이터'
   ];
 
   // Dorothy 관련성 체크
