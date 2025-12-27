@@ -244,21 +244,23 @@ export async function POST(req: NextRequest) {
 
                 content = result.success ? (result.data.answer || '분석 결과가 없어') : `❌ ${result.error}`;
 
-                if (result.success) {
-                  const dorothyResponse = {
-                    agent: 'Dorothy',
-                    content,
-                    emoji: '💼',
-                    status: result.data.sourcesUsed ? 'SEC 데이터 기반' : '데이터 없음'
-                  };
-                  responses.push(dorothyResponse);
-                  console.log('[Dorothy] ✅ Response added to array:', {
-                    contentLength: content.length,
-                    hasContent: !!content,
-                    totalResponses: responses.length,
-                    contentPreview: content.substring(0, 100) + '...'
-                  });
-                }
+                // Always add response (success or error)
+                const dorothyResponse = {
+                  agent: 'Dorothy',
+                  content,
+                  emoji: '💼',
+                  status: result.success
+                    ? (result.data.sourcesUsed ? 'SEC 데이터 기반' : '데이터 없음')
+                    : '에러 발생'
+                };
+                responses.push(dorothyResponse);
+                console.log(`[Dorothy] ${result.success ? '✅' : '❌'} Response added to array:`, {
+                  success: result.success,
+                  contentLength: content.length,
+                  hasContent: !!content,
+                  totalResponses: responses.length,
+                  contentPreview: content.substring(0, 100) + '...'
+                });
               } else if (agentName === 'Helena') {
                 sendEvent('status', { agent: 'Helena', message: 'Helena (SEC Data Curator) 시작...' });
                 console.log('\n[Helena] ▶ 시작: SEC 데이터 준비 및 큐레이션');
