@@ -71,6 +71,30 @@ export class SECClient {
 
     console.log(`[SEC Client] Looking up ticker/company: ${ticker}`);
 
+    // ============================================
+    // Korean → English Ticker Mapping (Goldman Sachs-grade)
+    // ============================================
+    const KOREAN_TICKER_MAP: Record<string, string> = {
+      '애플': 'AAPL',
+      '테슬라': 'TSLA',
+      '마이크로소프트': 'MSFT',
+      '구글': 'GOOGL',
+      '아마존': 'AMZN',
+      '메타': 'META',
+      '페이스북': 'META',
+      '엔비디아': 'NVDA',
+      '넷플릭스': 'NFLX',
+      '조비': 'JOBY',
+      '조비에비에이션': 'JOBY',
+    };
+
+    const lowerTicker = ticker.toLowerCase();
+    if (KOREAN_TICKER_MAP[lowerTicker]) {
+      const englishTicker = KOREAN_TICKER_MAP[lowerTicker];
+      console.log(`[SEC Client] ✓ Korean name detected: "${ticker}" → ${englishTicker}`);
+      ticker = englishTicker;
+    }
+
     // Try direct CIK lookup first (some tickers are numeric CIKs)
     if (/^\d+$/.test(ticker)) {
       try {
@@ -112,8 +136,19 @@ export class SECClient {
       }
 
       // If no exact ticker match, try company name search (fuzzy)
+      // IMPORTANT: Only for exact English company names, NOT Korean
       if (!matchedEntry) {
         const lowerQuery = ticker.toLowerCase();
+
+        // Skip fuzzy matching if query contains non-ASCII (Korean, Chinese, etc.)
+        const hasNonASCII = /[^\x00-\x7F]/.test(ticker);
+        if (hasNonASCII) {
+          console.log(`[SEC Client] ✗ Non-English input: "${ticker}"`);
+          console.log(`[SEC Client] 💡 Hint: Use English ticker (AAPL) or add to Korean mapping`);
+          return null;
+        }
+
+        // Fuzzy match English company names only
         for (const key in tickers) {
           const entry = tickers[key];
           if (entry.title && entry.title.toLowerCase().includes(lowerQuery)) {

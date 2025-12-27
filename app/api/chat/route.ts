@@ -277,15 +277,28 @@ export async function POST(req: NextRequest) {
                 if (!ticker && history.length > 0) {
                   console.log('[Helena] Ticker not in message, searching history...');
 
+                  // Reserved words that are NOT tickers
+                  const RESERVED_WORDS = new Set([
+                    'SEC', 'API', 'USA', 'CEO', 'CFO', 'IPO', 'ETF', 'LLC', 'INC', 'LTD',
+                    'THE', 'AND', 'FOR', 'WITH', 'DATA', 'YEAR', 'FILE'
+                  ]);
+
                   // Search user messages in reverse order (most recent first)
                   for (let i = history.length - 1; i >= 0; i--) {
                     const msg = history[i];
                     if (msg.role === 'user') {
-                      const historyTickerMatch = msg.content.match(/([A-Za-z]{2,5})(?:\s|$)/i);
-                      if (historyTickerMatch) {
-                        ticker = historyTickerMatch[1].toUpperCase();
-                        console.log(`[Helena] ✓ Found ticker in history: ${ticker} (from: "${msg.content.substring(0, 50)}...")`);
-                        break;
+                      // Extract all potential tickers (2-5 uppercase letters)
+                      const potentialTickers = msg.content.match(/\b[A-Z]{2,5}\b/g);
+                      if (potentialTickers) {
+                        // Find first valid ticker (not a reserved word)
+                        for (const candidate of potentialTickers) {
+                          if (!RESERVED_WORDS.has(candidate)) {
+                            ticker = candidate;
+                            console.log(`[Helena] ✓ Found ticker in history: ${ticker} (from: "${msg.content.substring(0, 50)}...")`);
+                            break;
+                          }
+                        }
+                        if (ticker) break;
                       }
                     }
                   }
