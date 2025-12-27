@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { WarRoom } from '@/orchestrator/WarRoom';
 import { AgentContext } from '@/types/agent';
+import { glmClient } from '@/llm/GLMClient';
 
 // Initialize WarRoom singleton (reuse across requests)
 let warRoomInstance: WarRoom | null = null;
@@ -46,11 +47,10 @@ const AGENT_NAME_MAP: Record<string, string> = {
 
 const ALL_AGENTS = ['Alice', 'Dorothy', 'Belle', 'Anna', 'Wendy', 'Aurora', 'Elsa', 'Amy', 'Helena'];
 
-// 질문을 분석해서 적합한 에이전트 선택
-function selectAgents(message: string): string[] {
-  const lowerMessage = message.toLowerCase();
-  const agents: string[] = [];
-
+// ============================================
+// LLM-based Agent Selection (Natural Language Understanding)
+// ============================================
+async function selectAgents(message: string, history: any[] = []): Promise<string[]> {
   // ============================================
   // Priority 1: @mention 파싱 (영어/한글 지원 + @all + 멀티)
   // ============================================
@@ -62,12 +62,12 @@ function selectAgents(message: string): string[] {
   }
 
   // Extract all @mentions (supports English, Korean, comma-separated)
-  // Pattern: @이름1,@이름2 or @이름1, @이름2 or @이름1 @이름2
   const mentionPattern = /@([A-Za-z가-힣]+)/gi;
   const mentions = [...message.matchAll(mentionPattern)];
 
   if (mentions.length > 0) {
     console.log(`[Agent Selection] 📝 Found ${mentions.length} @mentions`);
+    const agents: string[] = [];
 
     for (const match of mentions) {
       const mentionedName = match[1];
@@ -93,58 +93,80 @@ function selectAgents(message: string): string[] {
   }
 
   // ============================================
-  // Priority 2: 키워드 매칭 (fallback)
+  // Priority 2: LLM-based intelligent selection (NEW!)
   // ============================================
+  console.log('[Agent Selection] 🤖 Using LLM-based natural language understanding...');
 
-  // Dorothy (재무 분석가) - 재무, SEC, 주식, 재무제표 관련
-  const dorothyKeywords = [
-    '재무', '주식', 'sec', '10-k', '10-q', '재무제표', '손익계산서', '대차대조표',
-    '현금흐름', '매출', '수익', '비용', '자산', '부채', '자본', '주가', 'eps',
-    'revenue', 'profit', 'cash', 'financial', 'quarterly', 'annual', 'filing',
-    '분기', '연간', '실적', 'ebitda', 'valuation', '가치평가', '배당', 'burn rate',
-    '소진율', '런웨이', 'runway', 'liquidity', '유동성'
-  ];
+  try {
+    // Create context from recent conversation history
+    const recentContext = history.slice(-3).map((msg: any) =>
+      `${msg.role === 'user' ? 'User' : 'Agent'}: ${msg.content.substring(0, 100)}`
+    ).join('\n');
 
-  // Alice (전략 컨설턴트) - 전략, 시장, 경쟁, M&A, 비즈니스 모델 관련
-  const aliceKeywords = [
-    '전략', '시장', '경쟁', 'm&a', '인수', '합병', '확장', '성장', '진출',
-    '포지셔닝', '차별화', '경쟁우위', '시장점유율', '사업모델', '비즈니스모델',
-    'business model', 'business', 'model', '비즈니스', '모델',
-    'strategy', 'market', 'competition', 'expansion', 'growth', 'positioning',
-    '리스크', '기회', '위협', '강점', '약점', 'swot', '포트폴리오'
-  ];
+    const selectionPrompt = `당신은 사용자의 질문을 분석해서 적합한 AI 에이전트를 선택하는 라우터입니다.
 
-  // Helena (SEC Data Curator) - 데이터 준비, 수집, 전처리, 재처리 관련
-  const helenaKeywords = [
-    '데이터 준비', '데이터 수집', 'prepare data', '전처리', 'preprocessing',
-    'filing 다운로드', 'download filing', 'xbrl', '데이터베이스', 'database',
-    '재처리', 'refresh', 'forcerefresh', '다시', '업데이트', 'update',
-    '데이터 받아', '데이터 다운', '파싱', 'parse', 'sec 데이터'
-  ];
+사용 가능한 에이전트:
+- Dorothy: 재무 분석가. SEC filings(10-K, 10-Q), 재무제표, 매출/수익/비용 분석, 분기/연간 실적, 현금흐름, burn rate, runway, valuation, XBRL 데이터 기반 재무 분석
+- Helena: SEC 데이터 큐레이터. SEC 데이터 다운로드, XBRL 파싱, 데이터 준비/수집/전처리, 재처리(refresh), 데이터베이스 관리, filing 준비
+- Alice: 전략 컨설턴트. 비즈니스 전략, 시장 분석, 경쟁 분석, M&A, 성장 전략, 포지셔닝, SWOT 분석, 비즈니스 모델
+- Belle: 시장 정보 수집가. 시장 조사, 경쟁사 정보
+- Anna: 규제 준수 전문가. 규제 compliance, 인증
+- Wendy: 회의 관리자. 회의록, 액션 아이템
+- Aurora: 운영 최적화 전문가. 운영 효율, 프로세스 개선
+- Elsa: 리스크 관리자. 리스크 평가, 규정 준수
+- Amy: 프로젝트 히스토리 관리자. 프로젝트 히스토리 추적
 
-  // Dorothy 관련성 체크
-  if (dorothyKeywords.some(keyword => lowerMessage.includes(keyword))) {
-    agents.push('Dorothy');
+최근 대화 맥락:
+${recentContext || '(없음)'}
+
+사용자 질문:
+"${message}"
+
+이 질문을 처리할 가장 적합한 에이전트 1-2개를 선택하세요.
+- 티커(JOBY, 조비, AAPL 등) + 재무 관련 단어 → Dorothy
+- 티커 + 데이터/다운/준비/재처리/파싱 → Helena
+- 전략/시장/경쟁/M&A → Alice
+- 자연어로 의도를 파악하세요. 키워드가 정확히 없어도 맥락으로 판단하세요.
+
+JSON만 반환하세요: {"agents": ["AgentName1"]} 또는 {"agents": ["AgentName1", "AgentName2"]}`;
+
+    const response = await glmClient.chat({
+      messages: [
+        { role: 'user', content: selectionPrompt }
+      ],
+      temperature: 0.3, // Low temperature for consistent routing
+    });
+
+    console.log('[Agent Selection] 🤖 LLM response:', response);
+
+    // Parse JSON response
+    const jsonMatch = response.match(/\{[^}]*"agents"[^}]*\}/);
+    if (!jsonMatch) {
+      console.warn('[Agent Selection] ⚠️ Failed to parse LLM response, defaulting to Alice');
+      return ['Alice'];
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const selectedAgents = parsed.agents || [];
+
+    // Validate agent names
+    const validAgents = selectedAgents.filter((agent: string) =>
+      ALL_AGENTS.includes(agent)
+    );
+
+    if (validAgents.length === 0) {
+      console.warn('[Agent Selection] ⚠️ No valid agents from LLM, defaulting to Alice');
+      return ['Alice'];
+    }
+
+    console.log(`[Agent Selection] 🎯 LLM selected: ${validAgents.join(', ')}`);
+    return validAgents;
+
+  } catch (error) {
+    console.error('[Agent Selection] ❌ LLM selection failed:', error);
+    console.log('[Agent Selection] ℹ️ Falling back to Alice');
+    return ['Alice'];
   }
-
-  // Helena 관련성 체크
-  if (helenaKeywords.some(keyword => lowerMessage.includes(keyword))) {
-    agents.push('Helena');
-  }
-
-  // Alice 관련성 체크
-  if (aliceKeywords.some(keyword => lowerMessage.includes(keyword))) {
-    agents.push('Alice');
-  }
-
-  // 키워드 매칭 안 되면 Alice 기본 (전략 컨설턴트)
-  if (agents.length === 0) {
-    console.log('[Agent Selection] ℹ️ No keywords matched - defaulting to Alice');
-    agents.push('Alice');
-  }
-
-  console.log(`[Agent Selection] 📊 Keyword matching result: ${agents.join(', ')}`);
-  return agents;
 }
 
 export async function POST(req: NextRequest) {
@@ -179,7 +201,7 @@ export async function POST(req: NextRequest) {
             projectId: 1,
           };
 
-          const selectedAgents = selectAgents(message);
+          const selectedAgents = await selectAgents(message, history);
           console.log(`[Auto-Select] 선택된 에이전트: ${selectedAgents.join(', ')}`);
 
           sendEvent('agents', { agents: selectedAgents });
