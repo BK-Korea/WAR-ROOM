@@ -64,7 +64,7 @@ export class SECClient {
 
   /**
    * Get company info by ticker symbol or company name
-   * Uses Edgar search to find company
+   * Uses SEC's official company_tickers.json API (fast and reliable)
    */
   async getCompanyByTicker(ticker: string): Promise<SECCompanyInfo | null> {
     await this.rateLimit();
@@ -80,73 +80,63 @@ export class SECClient {
           return directLookup;
         }
       } catch (directError) {
-        console.log(`[SEC Client] Direct CIK lookup failed, trying Edgar search...`);
+        console.log(`[SEC Client] Direct CIK lookup failed, trying ticker lookup...`);
       }
     }
 
-    // Use Edgar company search (works for both ticker and company name)
+    // Use SEC's official company_tickers.json API
     try {
-      console.log(`[SEC Client] Searching Edgar for: ${ticker}`);
-      const searchUrl = `https://www.sec.gov/cgi-bin/browse-edgar`;
-      const response = await axios.get(searchUrl, {
-        params: {
-          action: 'getcompany',
-          company: ticker,  // Edgar accepts both ticker and company name
-          type: '',
-          dateb: '',
-          owner: 'exclude',
-          count: '10'  // Get multiple results to find best match
-        },
+      console.log(`[SEC Client] Fetching company_tickers.json from SEC...`);
+      const response = await axios.get('https://www.sec.gov/files/company_tickers.json', {
         headers: {
-          'User-Agent': this.userAgent
+          'User-Agent': this.userAgent,
+          'Accept': 'application/json'
         },
         timeout: 30000
       });
 
-      // Parse HTML response to extract CIK
-      const html = response.data;
+      const tickers = response.data;
+      console.log(`[SEC Client] ✓ Loaded ${Object.keys(tickers).length} companies from SEC`);
 
-      // Check if search returned no results
-      if (html.includes('No matching') || html.includes('No companies')) {
-        console.log(`[SEC Client] ✗ No matching companies found for: ${ticker}`);
-        return null;
-      }
+      // Search for exact ticker match (case-insensitive)
+      const upperTicker = ticker.toUpperCase();
+      let matchedEntry = null;
 
-      // Try multiple patterns to extract CIK (ordered by likelihood)
-      const patterns = [
-        /CIK=0*(\d+)/i,                    // CIK=0001867102 (most common)
-        /\/cik\/0*(\d+)\//i,               // /cik/0001867102/
-        /CIK:\s*0*(\d+)/i,                 // CIK: 1867102
-        /CIK\s+0*(\d+)/i,                  // CIK 1867102
-        /cik=0*(\d+)/i,                    // cik=1867102 (lowercase)
-        /<CIK>0*(\d+)<\/CIK>/i,            // <CIK>1867102</CIK>
-        /seriesCik=0*(\d+)/i,              // seriesCik=1867102
-        /company\/0*(\d+)/i,               // company/1867102
-      ];
-
-      let cikMatch = null;
-      for (const pattern of patterns) {
-        cikMatch = html.match(pattern);
-        if (cikMatch) {
-          console.log(`[SEC Client] ✓ CIK matched with pattern: ${pattern}`);
+      for (const key in tickers) {
+        const entry = tickers[key];
+        if (entry.ticker && entry.ticker.toUpperCase() === upperTicker) {
+          matchedEntry = entry;
+          console.log(`[SEC Client] ✓ Found exact ticker match: ${entry.title} (CIK: ${entry.cik_str})`);
           break;
         }
       }
 
-      if (!cikMatch) {
-        console.log(`[SEC Client] ✗ No CIK found in Edgar search for: ${ticker}`);
-        console.log(`[SEC Client] HTML length:`, html.length);
-        console.log(`[SEC Client] HTML preview:`, html.substring(0, 1000));
+      // If no exact ticker match, try company name search (fuzzy)
+      if (!matchedEntry) {
+        const lowerQuery = ticker.toLowerCase();
+        for (const key in tickers) {
+          const entry = tickers[key];
+          if (entry.title && entry.title.toLowerCase().includes(lowerQuery)) {
+            matchedEntry = entry;
+            console.log(`[SEC Client] ✓ Found company name match: ${entry.title} (CIK: ${entry.cik_str})`);
+            break;
+          }
+        }
+      }
+
+      if (!matchedEntry) {
+        console.log(`[SEC Client] ✗ No matching company found for: ${ticker}`);
         return null;
       }
 
-      const cik = cikMatch[1].padStart(10, '0');
-      console.log(`[SEC Client] ✓ Found CIK via Edgar search: ${cik}`);
+      // Convert CIK to padded format
+      const cik = String(matchedEntry.cik_str).padStart(10, '0');
+      console.log(`[SEC Client] ✓ Resolved to CIK: ${cik}`);
 
-      // Now get full company info using CIK
+      // Get full company info using CIK
       return await this.getCompanyByCIK(cik);
-    } catch (searchError) {
-      console.error('[SEC Client] Edgar search failed:', searchError);
+    } catch (error) {
+      console.error('[SEC Client] company_tickers.json fetch failed:', error);
       return null;
     }
   }
