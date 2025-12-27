@@ -582,15 +582,28 @@ Provide comprehensive financial health assessment:
       if (!companyTicker && history && history.length > 0) {
         console.log('[Dorothy] 💡 Ticker not found in question, searching conversation history...');
 
+        // Reserved words that are NOT tickers (same as Helena)
+        const RESERVED_WORDS = new Set([
+          'SEC', 'API', 'USA', 'CEO', 'CFO', 'IPO', 'ETF', 'LLC', 'INC', 'LTD',
+          'THE', 'AND', 'FOR', 'WITH', 'DATA', 'YEAR', 'FILE'
+        ]);
+
         // Search user messages in reverse order (most recent first)
         for (let i = history.length - 1; i >= 0; i--) {
           const msg = history[i];
           if (msg.role === 'user') {
-            const historyTickerMatch = msg.content.match(/\b([A-Z]{2,5})\b/);
-            if (historyTickerMatch) {
-              companyTicker = historyTickerMatch[1];
-              console.log(`[Dorothy] ✅ Found ticker in history: ${companyTicker} (from: "${msg.content.substring(0, 50)}...")`);
-              break;
+            // Extract all potential tickers (2-5 uppercase letters)
+            const potentialTickers = msg.content.match(/\b[A-Z]{2,5}\b/g);
+            if (potentialTickers) {
+              // Find first valid ticker (not a reserved word)
+              for (const candidate of potentialTickers) {
+                if (!RESERVED_WORDS.has(candidate)) {
+                  companyTicker = candidate;
+                  console.log(`[Dorothy] ✅ Found ticker in history: ${companyTicker} (from: "${msg.content.substring(0, 50)}...")`);
+                  break;
+                }
+              }
+              if (companyTicker) break;
             }
           }
         }
