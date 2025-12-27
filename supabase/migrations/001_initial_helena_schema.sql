@@ -60,11 +60,11 @@ CREATE TABLE IF NOT EXISTS company_financials (
 );
 
 -- Indexes for fast queries
-CREATE INDEX idx_financials_ticker_date ON company_financials(ticker, filing_date DESC);
-CREATE INDEX idx_financials_metric ON company_financials(ticker, metric_name, fiscal_year);
-CREATE INDEX idx_financials_accession ON company_financials(filing_accession);
-CREATE INDEX idx_financials_period ON company_financials(period_end_date DESC);
-CREATE INDEX idx_financials_xbrl_tag ON company_financials(xbrl_tag);
+CREATE INDEX IF NOT EXISTS idx_financials_ticker_date ON company_financials(ticker, filing_date DESC);
+CREATE INDEX IF NOT EXISTS idx_financials_metric ON company_financials(ticker, metric_name, fiscal_year);
+CREATE INDEX IF NOT EXISTS idx_financials_accession ON company_financials(filing_accession);
+CREATE INDEX IF NOT EXISTS idx_financials_period ON company_financials(period_end_date DESC);
+CREATE INDEX IF NOT EXISTS idx_financials_xbrl_tag ON company_financials(xbrl_tag);
 
 -- Comments for documentation
 COMMENT ON TABLE company_financials IS 'XBRL-parsed financial metrics from SEC filings - 100% accurate';
@@ -122,10 +122,10 @@ CREATE TABLE IF NOT EXISTS filing_sections (
 );
 
 -- Indexes
-CREATE INDEX idx_sections_ticker ON filing_sections(ticker, filing_date DESC);
-CREATE INDEX idx_sections_type ON filing_sections(section_type);
-CREATE INDEX idx_sections_accession ON filing_sections(filing_accession);
-CREATE INDEX idx_sections_hash ON filing_sections(content_hash);
+CREATE INDEX IF NOT EXISTS idx_sections_ticker ON filing_sections(ticker, filing_date DESC);
+CREATE INDEX IF NOT EXISTS idx_sections_type ON filing_sections(section_type);
+CREATE INDEX IF NOT EXISTS idx_sections_accession ON filing_sections(filing_accession);
+CREATE INDEX IF NOT EXISTS idx_sections_hash ON filing_sections(content_hash);
 
 -- Vector search index (Phase 4 - uncomment when ready)
 -- CREATE INDEX idx_sections_embedding ON filing_sections USING ivfflat (embedding vector_cosine_ops);
@@ -178,12 +178,12 @@ CREATE TABLE IF NOT EXISTS audit_trail (
 );
 
 -- Indexes for audit queries
-CREATE INDEX idx_audit_timestamp ON audit_trail(timestamp DESC);
-CREATE INDEX idx_audit_agent ON audit_trail(agent_name, timestamp DESC);
-CREATE INDEX idx_audit_action ON audit_trail(action_type, timestamp DESC);
-CREATE INDEX idx_audit_entity ON audit_trail(entity_type, entity_id);
-CREATE INDEX idx_audit_request ON audit_trail(request_id);
-CREATE INDEX idx_audit_user ON audit_trail(user_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_trail(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_agent ON audit_trail(agent_name, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_trail(action_type, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_trail(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_request ON audit_trail(request_id);
+CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_trail(user_id, timestamp DESC);
 
 -- Comments
 COMMENT ON TABLE audit_trail IS 'Complete audit trail for regulatory compliance and debugging';
@@ -225,8 +225,8 @@ CREATE TABLE IF NOT EXISTS helena_job_queue (
 );
 
 -- Indexes
-CREATE INDEX idx_job_status ON helena_job_queue(status, priority DESC, created_at);
-CREATE INDEX idx_job_ticker ON helena_job_queue(ticker, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_job_status ON helena_job_queue(status, priority DESC, created_at);
+CREATE INDEX IF NOT EXISTS idx_job_ticker ON helena_job_queue(ticker, created_at DESC);
 
 -- Comments
 COMMENT ON TABLE helena_job_queue IS 'Background job queue for async SEC data processing';
@@ -265,8 +265,8 @@ CREATE TABLE IF NOT EXISTS company_metadata (
 );
 
 -- Indexes
-CREATE INDEX idx_company_ticker ON company_metadata(ticker);
-CREATE INDEX idx_company_cik ON company_metadata(cik);
+CREATE INDEX IF NOT EXISTS idx_company_ticker ON company_metadata(ticker);
+CREATE INDEX IF NOT EXISTS idx_company_cik ON company_metadata(cik);
 
 -- Comments
 COMMENT ON TABLE company_metadata IS 'Company metadata cache for quick lookups';
