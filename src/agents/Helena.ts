@@ -796,15 +796,39 @@ export class Helena extends BaseAgent {
    * Update company metadata
    */
   private async updateCompanyMetadata(metadata: Partial<CompanyMetadata>): Promise<void> {
-    const { error } = await supabase
+    if (!metadata.ticker) {
+      throw new Error('Ticker is required for company metadata');
+    }
+
+    // Check if company already exists
+    const { data: existing } = await supabase
       .from('company_metadata')
-      .upsert({
-        ...metadata,
-        last_processed_at: new Date().toISOString(),
-        is_active: true
-      }, {
-        onConflict: 'ticker'
-      });
+      .select('id')
+      .eq('ticker', metadata.ticker)
+      .single();
+
+    const dataToSave = {
+      ...metadata,
+      last_processed_at: new Date().toISOString(),
+      is_active: true
+    };
+
+    let error;
+
+    if (existing) {
+      // Update existing record
+      const result = await supabase
+        .from('company_metadata')
+        .update(dataToSave)
+        .eq('ticker', metadata.ticker);
+      error = result.error;
+    } else {
+      // Insert new record
+      const result = await supabase
+        .from('company_metadata')
+        .insert(dataToSave);
+      error = result.error;
+    }
 
     if (error) {
       throw new Error(`Failed to update company metadata: ${error.message}`);
