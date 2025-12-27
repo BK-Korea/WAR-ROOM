@@ -530,7 +530,7 @@ Provide comprehensive financial health assessment:
    * Auto-downloads SEC filings if not available in DB
    */
   private async answerQuestion(params: any, context: AgentContext): Promise<TaskResult> {
-    const { ticker, cik, question, filingType, onProgress } = params;
+    const { ticker, cik, question, filingType, onProgress, history = [] } = params;
 
     // Progress callback helper
     const progress = (message: string) => {
@@ -574,6 +574,30 @@ Provide comprehensive financial health assessment:
         console.log(`\n[Dorothy] 1️⃣  회사 정보 (파라미터로 제공됨):`);
         console.log(`[Dorothy]   - Ticker: ${companyTicker || 'N/A'}`);
         console.log(`[Dorothy]   - CIK: ${companyCIK || 'N/A'}`);
+      }
+
+      // ============================================
+      // Try to extract ticker from conversation history (like Helena)
+      // ============================================
+      if (!companyTicker && history && history.length > 0) {
+        console.log('[Dorothy] 💡 Ticker not found in question, searching conversation history...');
+
+        // Search user messages in reverse order (most recent first)
+        for (let i = history.length - 1; i >= 0; i--) {
+          const msg = history[i];
+          if (msg.role === 'user') {
+            const historyTickerMatch = msg.content.match(/\b([A-Z]{2,5})\b/);
+            if (historyTickerMatch) {
+              companyTicker = historyTickerMatch[1];
+              console.log(`[Dorothy] ✅ Found ticker in history: ${companyTicker} (from: "${msg.content.substring(0, 50)}...")`);
+              break;
+            }
+          }
+        }
+
+        if (!companyTicker) {
+          console.log('[Dorothy] ⚠️ No ticker found in conversation history');
+        }
       }
 
       // Use company name as fallback if ticker/CIK not found
