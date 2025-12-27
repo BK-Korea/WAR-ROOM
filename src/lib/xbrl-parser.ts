@@ -12,6 +12,12 @@ import axios from 'axios';
 import * as xml2js from 'xml2js';
 
 // ============================================
+// SEC Company Facts API (Goldman Sachs-grade)
+// ============================================
+const SEC_COMPANY_FACTS_BASE = 'https://data.sec.gov/api/xbrl/companyfacts';
+const USER_AGENT = 'WAR-ROOM/1.0 ([email protected])';
+
+// ============================================
 // Types
 // ============================================
 
@@ -48,8 +54,6 @@ export interface XBRLParseResult {
 // ============================================
 // Constants
 // ============================================
-
-const USER_AGENT = 'WAR-ROOM/1.0 ([email protected])';
 
 // Common XBRL namespaces
 const XBRL_NAMESPACES = {
@@ -559,6 +563,112 @@ export function getXBRLParser(): XBRLParser {
   return new XBRLParser();
 }
 
+/**
+ * Fetch company facts from SEC API (Goldman Sachs-grade)
+ * Uses SEC's pre-parsed XBRL data - 100% reliable, no parsing needed
+ */
+async function fetchCompanyFactsFromSEC(cik: string, ticker: string, companyName: string): Promise<XBRLFinancial[]> {
+  try {
+    const paddedCIK = cik.padStart(10, '0');
+    const url = `${SEC_COMPANY_FACTS_BASE}/CIK${paddedCIK}.json`;
+
+    console.log(`[SEC API] Fetching Company Facts: ${url}`);
+
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': USER_AGENT,
+        'Accept': 'application/json'
+      },
+      timeout: 30000
+    });
+
+    const data = response.data;
+    console.log(`[SEC API] ✓ Received facts for ${data.entityName}`);
+
+    // Extract financials from us-gaap facts
+    const financials: XBRLFinancial[] = [];
+    const usGaap = data.facts?.['us-gaap'] || {};
+
+    // Key metrics we want
+    const metrics = [
+      'Revenues',
+      'RevenueFromContractWithCustomerExcludingAssessedTax',
+      'SalesRevenueNet',
+      'NetIncomeLoss',
+      'GrossProfit',
+      'OperatingIncomeLoss',
+      'Assets',
+      'AssetsCurrent',
+      'Liabilities',
+      'LiabilitiesCurrent',
+      'StockholdersEquity',
+      'CashAndCashEquivalentsAtCarryingValue',
+      'EarningsPerShareBasic',
+      'EarningsPerShareDiluted',
+    ];
+
+    for (const metricTag of metrics) {
+      const metric = usGaap[metricTag];
+      if (!metric || !metric.units) continue;
+
+      // Get USD values
+      const usdValues = metric.units.USD || [];
+
+      for (const item of usdValues) {
+        // Only quarterly (Q1-Q4) and annual (FY) periods
+        if (!item.fp || !['Q1', 'Q2', 'Q3', 'Q4', 'FY'].includes(item.fp)) {
+          continue;
+        }
+
+        // Only 10-K and 10-Q filings
+        if (!['10-K', '10-Q'].includes(item.form)) {
+          continue;
+        }
+
+        const periodType = item.fp === 'FY' ? 'annual' : 'quarterly';
+
+        financials.push({
+          xbrlTag: `us-gaap:${metricTag}`,
+          label: metric.label || metricTag,
+          value: item.val,
+          unit: 'USD',
+          scale: detectScaleFromValue(item.val),
+          periodStart: item.start || item.end, // Use end as start if not available
+          periodEnd: item.end,
+          isInstant: !item.start, // Instant if no start date
+          contextRef: item.accn,
+          periodType: periodType as any,
+          periodLengthMonths: item.fp === 'FY' ? 12 : 3,
+          hasDimensions: false, // SEC API gives consolidated by default
+        });
+      }
+    }
+
+    console.log(`[SEC API] ✓ Extracted ${financials.length} financial metrics`);
+    return financials;
+
+  } catch (error: any) {
+    if (error.response?.status === 404) {
+      console.log(`[SEC API] ⚠️ Company facts not available for CIK ${cik}`);
+    } else {
+      console.error(`[SEC API] ❌ Failed to fetch company facts:`, error.message);
+    }
+    return [];
+  }
+}
+
+/**
+ * Detect scale from value magnitude
+ */
+function detectScaleFromValue(value: number): 'actual' | 'thousands' | 'millions' | 'billions' {
+  const absValue = Math.abs(value);
+
+  if (absValue >= 1_000_000_000) return 'billions';
+  if (absValue >= 1_000_000) return 'millions';
+  if (absValue >= 1_000) return 'thousands';
+  return 'actual';
+}
+
 export async function parseXBRLFiling(filing: {
   cik: string;
   ticker: string;
@@ -568,12 +678,45 @@ export async function parseXBRLFiling(filing: {
   filingDate: string;
 }): Promise<XBRLParseResult | null> {
   try {
+    // ============================================
+    // Priority 1: SEC Company Facts API (Goldman Sachs-grade)
+    // ============================================
+    console.log(`[XBRL] Step 1: Trying SEC Company Facts API...`);
+    const secFinancials = await fetchCompanyFactsFromSEC(
+      filing.cik,
+      filing.ticker,
+      filing.companyName
+    );
+
+    if (secFinancials.length > 0) {
+      console.log(`[XBRL] ✅ Success! Using SEC Company Facts API (${secFinancials.length} metrics)`);
+
+      // Extract fiscal year from filing date
+      const fiscalYear = parseInt(filing.filingDate.split('-')[0]);
+
+      return {
+        cik: filing.cik,
+        ticker: filing.ticker,
+        companyName: filing.companyName,
+        filingAccession: filing.accessionNumber,
+        filingType: filing.filingType,
+        filingDate: filing.filingDate,
+        fiscalYear,
+        financials: secFinancials,
+      };
+    }
+
+    console.log(`[XBRL] ⚠️ SEC API returned 0 metrics, falling back to XML parser...`);
+
+    // ============================================
+    // Priority 2: Fallback to XML parser (legacy)
+    // ============================================
     const parser = getXBRLParser();
 
     // Step 1: Download XBRL
     const xbrlXml = await parser.downloadXBRL(filing.accessionNumber, filing.cik);
     if (!xbrlXml) {
-      console.log(`[XBRL] No XBRL data available for ${filing.accessionNumber}`);
+      console.log(`[XBRL] ❌ No XBRL data available for ${filing.accessionNumber}`);
       return null;
     }
 
