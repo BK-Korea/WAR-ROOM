@@ -280,14 +280,18 @@ export async function POST(req: NextRequest) {
                 // Try current message first
                 console.log('[Helena] Extracting ticker/company from message:', message);
 
+                // Remove @mentions to avoid matching agent names (e.g., @헬레나 → skip it)
+                const cleanMessage = message.replace(/@[A-Za-z가-힣]+/g, '').trim();
+                console.log('[Helena] Message after removing @mentions:', cleanMessage);
+
                 // Step 1: Try to find Korean company name (highest priority - unambiguous)
-                const koreanMatch = message.match(/([가-힣]{2,10})/);
+                const koreanMatch = cleanMessage.match(/([가-힣]{2,10})/);
                 if (koreanMatch) {
                   ticker = koreanMatch[1];
                   console.log(`[Helena] ✓ Found Korean company name: ${ticker}`);
                 } else {
                   // Step 2: Try to find uppercase ticker symbol (filter reserved words)
-                  const uppercaseMatches = message.match(/\b[A-Z]{2,5}\b/g);
+                  const uppercaseMatches = cleanMessage.match(/\b[A-Z]{2,5}\b/g);
                   if (uppercaseMatches) {
                     for (const candidate of uppercaseMatches) {
                       if (!RESERVED_WORDS.has(candidate)) {
