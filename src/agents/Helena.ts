@@ -796,16 +796,26 @@ export class Helena extends BaseAgent {
    * Update company metadata
    */
   private async updateCompanyMetadata(metadata: Partial<CompanyMetadata>): Promise<void> {
-    if (!metadata.ticker) {
-      throw new Error('Ticker is required for company metadata');
+    if (!metadata.ticker || !metadata.cik) {
+      throw new Error('Ticker and CIK are required for company metadata');
     }
 
-    // Check if company already exists
-    const { data: existing } = await supabase
+    // Check if company already exists (by ticker OR cik)
+    // Important: Check both because both have UNIQUE constraints
+    const { data: existingByTicker } = await supabase
       .from('company_metadata')
-      .select('id')
+      .select('id, ticker')
       .eq('ticker', metadata.ticker)
-      .single();
+      .maybeSingle();
+
+    const { data: existingByCik } = await supabase
+      .from('company_metadata')
+      .select('id, ticker')
+      .eq('cik', metadata.cik)
+      .maybeSingle();
+
+    // Use whichever exists (ticker takes precedence)
+    const existing = existingByTicker || existingByCik;
 
     let error;
 
@@ -819,7 +829,7 @@ export class Helena extends BaseAgent {
           last_processed_at: new Date().toISOString(),
           is_active: true
         })
-        .eq('ticker', metadata.ticker);
+        .eq('ticker', existing.ticker);  // Use existing ticker to ensure we update the right record
       error = result.error;
     } else {
       // Insert new record - include all fields
