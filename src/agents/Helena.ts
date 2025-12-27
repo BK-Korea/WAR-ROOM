@@ -807,26 +807,29 @@ export class Helena extends BaseAgent {
       .eq('ticker', metadata.ticker)
       .single();
 
-    const dataToSave = {
-      ...metadata,
-      last_processed_at: new Date().toISOString(),
-      is_active: true
-    };
-
     let error;
 
     if (existing) {
-      // Update existing record
+      // Update existing record - exclude ticker and cik (they are UNIQUE and shouldn't change)
+      const { ticker, cik, ...updateData } = metadata;
       const result = await supabase
         .from('company_metadata')
-        .update(dataToSave)
+        .update({
+          ...updateData,
+          last_processed_at: new Date().toISOString(),
+          is_active: true
+        })
         .eq('ticker', metadata.ticker);
       error = result.error;
     } else {
-      // Insert new record
+      // Insert new record - include all fields
       const result = await supabase
         .from('company_metadata')
-        .insert(dataToSave);
+        .insert({
+          ...metadata,
+          last_processed_at: new Date().toISOString(),
+          is_active: true
+        });
       error = result.error;
     }
 
