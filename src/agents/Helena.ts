@@ -941,6 +941,13 @@ export class Helena extends BaseAgent {
    * Update company metadata
    */
   private async updateCompanyMetadata(metadata: Partial<CompanyMetadata>): Promise<void> {
+    console.log(`\n[Helena] 📝 Updating company_metadata...`);
+    console.log(`[Helena] - Ticker: ${metadata.ticker}`);
+    console.log(`[Helena] - CIK: ${metadata.cik}`);
+    console.log(`[Helena] - Company: ${metadata.company_name}`);
+    console.log(`[Helena] - Metrics count: ${metadata.metrics_count}`);
+    console.log(`[Helena] - Filings count: ${metadata.filings_count}`);
+
     if (!metadata.ticker || !metadata.cik) {
       throw new Error('Ticker and CIK are required for company metadata');
     }
@@ -965,6 +972,7 @@ export class Helena extends BaseAgent {
     let error;
 
     if (existing) {
+      console.log(`[Helena] 🔄 Updating existing record (id=${existing.id})`);
       // Update existing record - exclude ticker and cik (they are UNIQUE and shouldn't change)
       const { ticker, cik, ...updateData } = metadata;
       const result = await supabase
@@ -977,6 +985,7 @@ export class Helena extends BaseAgent {
         .eq('ticker', existing.ticker);  // Use existing ticker to ensure we update the right record
       error = result.error;
     } else {
+      console.log(`[Helena] ➕ Inserting new record`);
       // Insert new record - include all fields
       const result = await supabase
         .from('company_metadata')
@@ -989,8 +998,11 @@ export class Helena extends BaseAgent {
     }
 
     if (error) {
+      console.error(`[Helena] ❌ Failed to update company_metadata:`, error);
       throw new Error(`Failed to update company metadata: ${error.message}`);
     }
+
+    console.log(`[Helena] ✅ company_metadata updated successfully`);
   }
 
   /**
