@@ -251,7 +251,9 @@ export class Helena extends BaseAgent {
       progress(`SEC Edgar에서 ${ticker} filing 다운로드 중...`);
       console.log(`[Helena] 📥 Fetching filings from SEC Edgar...`);
 
-      const limit = years * 4; // Rough estimate: 4 quarters per year
+      // Smart limit: 1 per year for annual (10-K), 4 per year for quarterly (10-Q)
+      const hasQuarterly = filingTypes.some(t => t === '10-Q');
+      const limit = hasQuarterly ? years * 4 : years * 1;
       const filings = await secClient.getFilings(companyInfo.cik, filingTypes, limit);
 
       console.log(`[Helena] ✓ Found ${filings.length} filings`);
@@ -354,12 +356,7 @@ export class Helena extends BaseAgent {
                 // Convert to actual dollars
                 const actualValue = convertXBRLValue(financial.value, financial.scale);
 
-                console.log(`[Helena XBRL] Processing: ${financial.label} = ${actualValue} ${financial.unit}`);
-                console.log(`[Helena XBRL]   - XBRL Tag: ${financial.xbrlTag}`);
-                console.log(`[Helena XBRL]   - Scale: ${financial.scale}`);
-                console.log(`[Helena XBRL]   - Period: ${financial.periodEnd}`);
-
-                // Validate if it's revenue
+                // Validate if it's revenue (quiet mode - only log failures)
                 if (financial.xbrlTag.includes('Revenue')) {
                   const validation = validateFinancialNumber(
                     actualValue,
@@ -377,12 +374,6 @@ export class Helena extends BaseAgent {
                     skippedCount++;
                     continue;
                   }
-
-                  if (validation.warnings) {
-                    validation.warnings.forEach(w => console.warn(`[Helena XBRL] ⚠️ Warning: ${w}`));
-                  }
-
-                  console.log(`[Helena XBRL] ✅ Validation passed`);
                 }
 
                 financialsToSave.push({
