@@ -337,17 +337,22 @@ export class Helena extends BaseAgent {
             };
           });
 
-          // CRITICAL: Deduplicate - SEC API returns same data in multiple filings
-          // Strategy: Keep only the LATEST filing for each unique (period_end, metric)
-          // Example: Revenue for Q1 2024 appears in Q1, Q2, Q3 filings → keep only latest
+          // CRITICAL: Deduplicate - SEC API includes prior year comparison data
+          // Problem 1: Same fiscal period appears in multiple filings (Q1 data in Q1,Q2,Q3 filings)
+          // Problem 2: Each filing includes prior year same period for YoY comparison
+          // Example FY2024 Q1 filing contains:
+          //   - FY2024 Q1 data (period_end=2023-12-30) ✓ KEEP
+          //   - FY2023 Q1 data (period_end=2022-12-31) ✗ REMOVE (comparison data)
+          // Strategy: For each (fiscal_year, fiscal_quarter, metric), keep LATEST period_end_date
           const dedupMap = new Map<string, any>();
 
           for (const financial of financialsToSave) {
-            const key = `${financial.period_end_date}-${financial.xbrl_tag}-${financial.fiscal_year}-${financial.fiscal_quarter}`;
+            // Key: fiscal period + metric (NOT period_end_date!)
+            const key = `${financial.fiscal_year}-${financial.fiscal_quarter}-${financial.xbrl_tag}`;
             const existing = dedupMap.get(key);
 
-            // Keep the one with latest filing_date
-            if (!existing || (financial.filing_date && financial.filing_date > existing.filing_date)) {
+            // Keep the one with LATEST period_end_date (most recent data for that fiscal period)
+            if (!existing || (financial.period_end_date && financial.period_end_date > existing.period_end_date)) {
               dedupMap.set(key, financial);
             }
           }
