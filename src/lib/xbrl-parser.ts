@@ -567,7 +567,7 @@ export function getXBRLParser(): XBRLParser {
  * Fetch company facts from SEC API (Goldman Sachs-grade)
  * Uses SEC's pre-parsed XBRL data - 100% reliable, no parsing needed
  */
-async function fetchCompanyFactsFromSEC(cik: string, ticker: string, companyName: string): Promise<XBRLFinancial[]> {
+export async function fetchCompanyFactsFromSEC(cik: string, ticker: string, companyName: string): Promise<XBRLFinancial[]> {
   try {
     const paddedCIK = cik.padStart(10, '0');
     const url = `${SEC_COMPANY_FACTS_BASE}/CIK${paddedCIK}.json`;
