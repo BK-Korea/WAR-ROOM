@@ -763,8 +763,8 @@ ${sectionsContext}
                 'prepare_company_data',
                 {
                   ticker: companyTicker,
-                  years: 3,
-                  filingTypes: ['10-K', '10-Q', '20-F'],
+                  years: 1,  // Reduced from 3 to avoid Vercel timeout
+                  filingTypes: ['10-K'],  // Only annual reports (faster than 10-K + 10-Q)
                   forceRefresh: false,
                   onProgress: (msg: string) => {
                     progress(`Helena: ${msg}`);
