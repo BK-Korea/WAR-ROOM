@@ -290,8 +290,23 @@ export class Helena extends BaseAgent {
         if (allFinancials.length > 0) {
           console.log(`[Helena] ✅ SEC API returned ${allFinancials.length} metrics`);
 
-          // Step 3.6: Check existing data (idempotent processing)
-          let financialsToSave: Partial<CompanyFinancial>[] = allFinancials.map((f: any, index: number) => {
+          // Step 3.6a: FIRST remove duplicates from SEC API response
+          // Duplicate key: xbrl_tag + context + periodEnd (semantically unique metric)
+          const beforeDedup = allFinancials.length;
+          const uniqueFinancials = Array.from(
+            new Map(
+              allFinancials.map((f: any) => [
+                `${f.xbrlTag}-${f.contextRef || 'N/A'}-${f.periodEnd}`,
+                f
+              ])
+            ).values()
+          );
+          if (beforeDedup !== uniqueFinancials.length) {
+            console.log(`[Helena] 🔧 Removed ${beforeDedup - uniqueFinancials.length} duplicate metrics from SEC API`);
+          }
+
+          // Step 3.6b: THEN map to database schema with DETERMINISTIC filing_accession
+          let financialsToSave: Partial<CompanyFinancial>[] = uniqueFinancials.map((f: any) => {
             // Extract fiscal year from periodEnd (YYYY-MM-DD format)
             const fiscalYear = f.periodEnd ? parseInt(f.periodEnd.split('-')[0]) : new Date().getFullYear();
 
@@ -300,10 +315,11 @@ export class Helena extends BaseAgent {
               ? Math.ceil(parseInt(f.periodEnd.split('-')[1]) / 3)
               : null;
 
-            // Create GUARANTEED UNIQUE filing_accession
-            // Problem: contextRef can be shared by multiple metrics → causes "cannot affect row a second time" error
-            // Solution: Use index to ensure uniqueness
-            const uniqueAccession = `SEC-API-${ticker.toUpperCase()}-${f.periodEnd}-${String(index).padStart(4, '0')}`;
+            // Create DETERMINISTIC filing_accession
+            // CRITICAL: Must be same for same metric across multiple runs!
+            // Use contextRef (XBRL unique identifier) as primary key
+            // Fallback to ticker-tag-period for metrics without contextRef
+            const uniqueAccession = f.contextRef || `SEC-API-${ticker.toUpperCase()}-${f.xbrlTag.replace(/:/g, '-')}-${f.periodEnd}`;
 
             return {
               ticker: ticker.toUpperCase(),
@@ -312,7 +328,7 @@ export class Helena extends BaseAgent {
               filing_type: f.periodType === 'annual' ? '10-K' : '10-Q',
               filing_date: f.periodEnd,
               period_end_date: f.periodEnd,
-              filing_accession: uniqueAccession,  // GUARANTEED UNIQUE
+              filing_accession: uniqueAccession,
               fiscal_year: fiscalYear,
               fiscal_quarter: fiscalQuarter,
               metric_name: f.label,
@@ -334,18 +350,17 @@ export class Helena extends BaseAgent {
 
             const { data: existingMetrics } = await supabase
               .from('company_financials')
-              .select('xbrl_tag, period_end_date')
+              .select('filing_accession')
               .eq('ticker', ticker.toUpperCase());
 
             if (existingMetrics && existingMetrics.length > 0) {
-              const existingKeys = new Set(
-                existingMetrics.map(m => `${m.xbrl_tag}-${m.period_end_date}`)
+              const existingAccessions = new Set(
+                existingMetrics.map(m => m.filing_accession)
               );
 
               const beforeCount = financialsToSave.length;
               financialsToSave = financialsToSave.filter(f => {
-                const key = `${f.xbrl_tag}-${f.period_end_date}`;
-                return !existingKeys.has(key);
+                return !existingAccessions.has(f.filing_accession);
               });
 
               const skippedCount = beforeCount - financialsToSave.length;
