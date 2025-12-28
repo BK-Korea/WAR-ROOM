@@ -274,7 +274,88 @@ export class Helena extends BaseAgent {
         };
       }
 
-      // Step 4: Download and convert to markdown
+      // Step 3.5: Fetch all company financials from SEC API (once per company, not per filing)
+      progress('SEC Company Facts API에서 전체 데이터 다운로드 중...');
+      console.log(`\n[Helena] 📊 Fetching Company Facts from SEC API...`);
+      console.log(`[Helena] - This is done ONCE for the entire company (not per filing)`);
+
+      try {
+        const { fetchCompanyFactsFromSEC } = await import('../lib/xbrl-parser');
+        const allFinancials = await fetchCompanyFactsFromSEC(
+          companyInfo.cik,
+          ticker.toUpperCase(),
+          companyInfo.name
+        );
+
+        if (allFinancials.length > 0) {
+          console.log(`[Helena] ✅ SEC API returned ${allFinancials.length} metrics`);
+
+          // Convert to CompanyFinancial format and save to DB
+          const financialsToSave: Partial<CompanyFinancial>[] = allFinancials.map((f: any) => ({
+            ticker: ticker.toUpperCase(),
+            cik: companyInfo.cik,
+            company_name: companyInfo.name,
+            filing_type: f.form || '10-K',  // SEC API doesn't specify, default to 10-K
+            filing_date: f.filed || f.end,
+            filing_accession: f.accession || 'SEC-API',
+            period_end_date: f.end,
+            fiscal_year: parseInt(f.fy),
+            fiscal_quarter: f.fp?.includes('Q') ? parseInt(f.fp.replace('Q', '')) : null,
+            metric_name: f.label,
+            metric_value: f.val,
+            metric_unit: f.unit,
+            xbrl_tag: f.xbrlTag,
+            xbrl_context: f.frame,
+            xbrl_namespace: f.xbrlTag.split(':')[0],
+            source_url: `https://data.sec.gov/api/xbrl/companyfacts/CIK${companyInfo.cik}.json`,
+            source_file: 'companyfacts.json',
+            processed_by: 'Helena',
+            processing_version: '2.0-sec-api'
+          }));
+
+          // Save all metrics at once
+          await this.saveFinancials(financialsToSave);
+          const totalMetrics = financialsToSave.length;
+          console.log(`[Helena] ✅ Saved ${totalMetrics} metrics to DB`);
+
+          // Update company metadata
+          await this.updateCompanyMetadata({
+            ticker: ticker.toUpperCase(),
+            cik: companyInfo.cik,
+            company_name: companyInfo.name,
+            filings_count: filings.length,
+            metrics_count: totalMetrics,
+            last_filing_date: filings[0]?.filingDate || null
+          });
+
+          progress('✅ 완료!');
+          console.log(`\n[Helena] ✅ Preparation complete!`);
+          console.log(`[Helena] - Filings found: ${filings.length}`);
+          console.log(`[Helena] - Metrics extracted: ${totalMetrics}`);
+
+          return {
+            success: true,
+            data: {
+              company: companyInfo.name,
+              ticker: ticker.toUpperCase(),
+              cik: companyInfo.cik,
+              filingsProcessed: filings.length,
+              metricsExtracted: totalMetrics,
+              sectionsExtracted: 0,
+              readyForQuery: totalMetrics > 0,
+              message: `✅ ${companyInfo.name} 데이터 준비 완료! (${totalMetrics}개 XBRL metrics)`
+            }
+          };
+        } else {
+          console.log(`[Helena] ⚠️ SEC API returned 0 metrics, falling back to per-filing parsing...`);
+        }
+      } catch (secApiError: any) {
+        console.error(`[Helena] ❌ SEC API failed: ${secApiError.message}`);
+        console.log(`[Helena] ℹ️ Falling back to per-filing XBRL parsing...`);
+      }
+
+      // Step 4: Fallback - process filings individually (slower)
+      // Only executed if SEC API fails
       let processedFilings = 0;
       let totalMetrics = 0;
       let totalSections = 0;
