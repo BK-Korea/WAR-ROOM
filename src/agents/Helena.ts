@@ -286,6 +286,13 @@ export class Helena extends BaseAgent {
           const url = `https://www.sec.gov/Archives/edgar/data/${companyInfo.cik.replace(/^0+/, '')}/${filing.accessionNumber.replace(/-/g, '')}/${filing.accessionNumber}.txt`;
 
           console.log(`[Helena] - Downloading from SEC...`);
+
+          // ============================================
+          // TEMPORARY: Skip sections extraction to avoid timeout
+          // Sections processing takes too long for Vercel serverless (10s timeout)
+          // TODO: Re-enable sections in Phase 2 or use background jobs
+          // ============================================
+          /*
           const conversionResult = await jinaClient.convertURL(url);
           const markdownContent = conversionResult.markdown;
           console.log(`[Helena] ✓ Converted to markdown (${markdownContent.length} chars)`);
@@ -303,6 +310,9 @@ export class Helena extends BaseAgent {
             totalSections += sections.length;
             console.log(`[Helena] ✓ Saved ${sections.length} sections`);
           }
+          */
+          console.log(`[Helena] ⏭️ Skipping sections extraction (avoiding timeout)`);
+
 
           // Step 6: Parse XBRL for 100% accurate financials
           console.log(`\n[Helena XBRL] ============================================`);
