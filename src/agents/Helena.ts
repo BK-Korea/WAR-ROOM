@@ -252,7 +252,7 @@ export class Helena extends BaseAgent {
       console.log(`[Helena] 📥 Fetching filings from SEC Edgar...`);
 
       // Smart limit: 1 per year for annual (10-K), 4 per year for quarterly (10-Q)
-      const hasQuarterly = filingTypes.some(t => t === '10-Q');
+      const hasQuarterly = filingTypes.some((t: string) => t === '10-Q');
       const limit = hasQuarterly ? years * 4 : years * 1;
       const filings = await secClient.getFilings(companyInfo.cik, filingTypes, limit);
 
