@@ -11,6 +11,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "test": "vitest",
+    "test:integration": "tsx scripts/test-integration.ts",
+    "test:integration:watch": "vitest tests/helena-dorothy.integration.test.ts",
     "demo": "tsx scripts/demo.ts"
   },
   "keywords": [
