@@ -8,8 +8,8 @@ import { config } from 'dotenv';
 config();
 
 import { supabase } from '../src/lib/supabase';
-import Helena from '../src/agents/Helena';
-import Dorothy from '../src/agents/Dorothy';
+import { Helena } from '../src/agents/Helena';
+import { Dorothy } from '../src/agents/Dorothy';
 
 const TEST_TICKER = 'AAPL';
 const TEST_YEAR = 2024;
