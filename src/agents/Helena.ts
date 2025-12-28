@@ -918,7 +918,7 @@ export class Helena extends BaseAgent {
     const { error } = await supabase
       .from('company_financials')
       .upsert(financials, {
-        onConflict: 'filing_accession,xbrl_tag,period_end_date',
+        onConflict: 'filing_accession,xbrl_tag,xbrl_context',  // Match DB UNIQUE constraint
         ignoreDuplicates: false
       });
 
