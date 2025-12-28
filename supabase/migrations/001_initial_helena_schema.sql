@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS company_financials (
 
   -- Financial metric
   metric_name TEXT NOT NULL,           -- Human-readable: 'Revenue', 'R&D Expense', 'Net Income'
-  metric_value NUMERIC(20, 2) NOT NULL,
+  metric_value NUMERIC(30, 2) NOT NULL,  -- Support large SEC API values (up to 28 digits)
   metric_unit TEXT DEFAULT 'USD',      -- 'USD', 'shares', 'percentage', etc.
 
   -- XBRL traceability (CRITICAL for audit)
