@@ -291,27 +291,37 @@ export class Helena extends BaseAgent {
           console.log(`[Helena] ✅ SEC API returned ${allFinancials.length} metrics`);
 
           // Step 3.6: Check existing data (idempotent processing)
-          let financialsToSave: Partial<CompanyFinancial>[] = allFinancials.map((f: any) => ({
-            ticker: ticker.toUpperCase(),
-            cik: companyInfo.cik,
-            company_name: companyInfo.name,
-            filing_type: f.form || '10-K',  // SEC API doesn't specify, default to 10-K
-            filing_date: f.filed || f.end,
-            filing_accession: f.accession || 'SEC-API',
-            period_end_date: f.end,
-            fiscal_year: parseInt(f.fy),
-            fiscal_quarter: f.fp?.includes('Q') ? parseInt(f.fp.replace('Q', '')) : null,
-            metric_name: f.label,
-            metric_value: f.val,
-            metric_unit: f.unit,
-            xbrl_tag: f.xbrlTag,
-            xbrl_context: f.frame,
-            xbrl_namespace: f.xbrlTag.split(':')[0],
-            source_url: `https://data.sec.gov/api/xbrl/companyfacts/CIK${companyInfo.cik}.json`,
-            source_file: 'companyfacts.json',
-            processed_by: 'Helena',
-            processing_version: '2.0-sec-api'
-          }));
+          let financialsToSave: Partial<CompanyFinancial>[] = allFinancials.map((f: any) => {
+            // Extract fiscal year from periodEnd (YYYY-MM-DD format)
+            const fiscalYear = f.periodEnd ? parseInt(f.periodEnd.split('-')[0]) : new Date().getFullYear();
+
+            // Determine fiscal quarter from periodType
+            const fiscalQuarter = f.periodType === 'quarterly' && f.periodLengthMonths === 3
+              ? Math.ceil(parseInt(f.periodEnd.split('-')[1]) / 3)
+              : null;
+
+            return {
+              ticker: ticker.toUpperCase(),
+              cik: companyInfo.cik,
+              company_name: companyInfo.name,
+              filing_type: f.periodType === 'annual' ? '10-K' : '10-Q',
+              filing_date: f.periodEnd,  // Use period end date as filing date
+              filing_accession: f.contextRef || 'SEC-API',
+              period_end_date: f.periodEnd,
+              fiscal_year: fiscalYear,
+              fiscal_quarter: fiscalQuarter,
+              metric_name: f.label,
+              metric_value: f.value,  // Use 'value' not 'val'
+              metric_unit: f.unit,
+              xbrl_tag: f.xbrlTag,
+              xbrl_context: f.contextRef,
+              xbrl_namespace: f.xbrlTag.split(':')[0],
+              source_url: `https://data.sec.gov/api/xbrl/companyfacts/CIK${companyInfo.cik}.json`,
+              source_file: 'companyfacts.json',
+              processed_by: 'Helena',
+              processing_version: '2.0-sec-api'
+            };
+          });
 
           // If not forceRefresh, filter out existing data
           if (!forceRefresh) {
