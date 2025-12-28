@@ -744,19 +744,134 @@ ${sectionsContext}
               };
             }
           } else {
-            console.log(`[Dorothy] ℹ️ Helena 데이터 없음`);
+            // ============================================
+            // Helena 데이터 없음 - 자동으로 Helena 호출해서 준비
+            // ============================================
+            console.log(`[Dorothy] ℹ️ Helena 데이터 없음 - 자동으로 준비 시작`);
+            progress('Helena DB에 데이터가 없어서 자동으로 준비 중... (1-2분 소요)');
 
-            return {
-              success: false,
-              error: `❌ Helena DB에 ${companyTicker} 데이터가 없어.\n\n` +
-                     `**해결 방법:**\n` +
-                     `먼저 "@Helena ${companyTicker} 데이터 준비해줘"를 실행해서 SEC filing 데이터를 준비해야 해.\n\n` +
-                     `Helena가 XBRL 파싱을 완료하면:\n` +
-                     `- 분기별 매출, 순이익 등 정확한 숫자 제공\n` +
-                     `- < 1초 초고속 조회\n` +
-                     `- 100% 정확도 (XBRL 태그 기반)\n\n` +
-                     `💡 준비 시간: 약 1-2분`
-            };
+            try {
+              // Call Helena to prepare company data
+              console.log(`[Dorothy] 🔄 Helena prepare_company_data 호출...`);
+
+              if (!params.warRoom) {
+                throw new Error('warRoom not available in params - cannot auto-call Helena');
+              }
+
+              const helenaResult = await params.warRoom.executeTask(
+                'Helena',
+                'prepare_company_data',
+                {
+                  ticker: companyTicker,
+                  years: 3,
+                  filingTypes: ['10-K', '10-Q', '20-F'],
+                  forceRefresh: false,
+                  onProgress: (msg: string) => {
+                    progress(`Helena: ${msg}`);
+                  }
+                },
+                context
+              );
+
+              if (!helenaResult.success) {
+                console.log(`[Dorothy] ❌ Helena 데이터 준비 실패: ${helenaResult.error}`);
+                return {
+                  success: false,
+                  error: `❌ Helena가 데이터 준비에 실패했어.\n\n` +
+                         `**에러:** ${helenaResult.error}\n\n` +
+                         `**해결 방법:**\n` +
+                         `수동으로 "@Helena ${companyTicker} 데이터 준비해줘"를 실행해봐.`
+                };
+              }
+
+              console.log(`[Dorothy] ✅ Helena 데이터 준비 완료!`);
+              console.log(`[Dorothy]   - Filings: ${helenaResult.data?.filingsProcessed || 0}`);
+              console.log(`[Dorothy]   - Metrics: ${helenaResult.data?.metricsExtracted || 0}`);
+
+              // Helena 준비 완료 후 다시 조회
+              progress('Helena 데이터 준비 완료! 다시 조회 중...');
+
+              const helenaFinancials = await supabase
+                .from('company_financials')
+                .select('*')
+                .eq('ticker', companyTicker.toUpperCase())
+                .order('period_end_date', { ascending: false })
+                .limit(100);
+
+              const helenaSections = await supabase
+                .from('filing_sections')
+                .select('*')
+                .eq('ticker', companyTicker.toUpperCase())
+                .order('filing_date', { ascending: false })
+                .limit(10);
+
+              if (helenaFinancials.data && helenaFinancials.data.length > 0) {
+                console.log(`[Dorothy] ✅ Helena DB에서 ${helenaFinancials.data.length}개 metrics 조회 완료`);
+
+                const financialsContext = this.formatHelenaFinancials(helenaFinancials.data);
+                const sectionsContext = this.formatHelenaSections(helenaSections.data || []);
+
+                const helenaContext = `
+# Helena Database - Pre-processed Financial Data
+
+## XBRL Financial Metrics (100% Accurate)
+${financialsContext}
+
+## Filing Sections
+${sectionsContext}
+
+**Important:** 위 숫자들은 XBRL에서 직접 파싱된 100% 정확한 데이터야. 절대 추정하거나 근사값을 쓰지 마.
+`;
+
+                progress('Helena 데이터로 분석 중...');
+
+                const analysisPrompt = `${question}\n\n${helenaContext}`;
+                const response = await this.callLLM(analysisPrompt, 0.3);
+
+                console.log(`[Dorothy] ✓ Helena 데이터 기반 분석 완료`);
+
+                return {
+                  success: true,
+                  data: {
+                    answer: response,
+                    sources: helenaFinancials.data.map((m: any) => ({
+                      filing_type: m.filing_type,
+                      filing_date: m.filing_date,
+                      accession: m.filing_accession,
+                      metric: m.metric_name,
+                      xbrl_tag: m.xbrl_tag
+                    })),
+                    dataSource: 'helena_db_auto_prepared',
+                    executionTime: 'auto-prepared + < 1 second',
+                    metricsUsed: helenaFinancials.data.length
+                  }
+                };
+              } else {
+                console.log(`[Dorothy] ❌ Helena 준비했지만 metrics 여전히 0개`);
+                return {
+                  success: false,
+                  error: `❌ Helena가 데이터를 준비했지만 XBRL metrics가 0개야.\n\n` +
+                         `**처리 결과:**\n` +
+                         `- Filings: ${helenaResult.data?.filingsProcessed || 0}개\n` +
+                         `- Metrics: 0개 ❌\n\n` +
+                         `**가능한 원인:**\n` +
+                         `1. ${companyTicker}가 XBRL을 제출하지 않음 (일부 해외 기업)\n` +
+                         `2. SEC API 일시적 장애\n` +
+                         `3. Vercel timeout (10초 초과)\n\n` +
+                         `**해결 방법:**\n` +
+                         `"@Helena ${companyTicker} 데이터 재처리해줘"를 다시 시도해봐.`
+                };
+              }
+            } catch (helenaCallError: any) {
+              console.error(`[Dorothy] ❌ Helena 호출 실패:`, helenaCallError);
+              return {
+                success: false,
+                error: `❌ Helena 자동 호출에 실패했어.\n\n` +
+                       `**에러:** ${helenaCallError.message}\n\n` +
+                       `**해결 방법:**\n` +
+                       `수동으로 "@Helena ${companyTicker} 데이터 준비해줘"를 실행해봐.`
+              };
+            }
           }
         } catch (error: any) {
           console.log(`[Dorothy] ⚠️ Helena 체크 실패: ${error.message}`);

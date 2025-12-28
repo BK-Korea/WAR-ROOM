@@ -231,6 +231,7 @@ export async function POST(req: NextRequest) {
                     question: message,
                     history, // Pass conversation history for context
                     onProgress,  // Pass progress callback
+                    warRoom,  // Pass warRoom for auto-calling Helena
                   },
                   context
                 );
