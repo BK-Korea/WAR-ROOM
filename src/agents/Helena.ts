@@ -290,8 +290,8 @@ export class Helena extends BaseAgent {
         if (allFinancials.length > 0) {
           console.log(`[Helena] ✅ SEC API returned ${allFinancials.length} metrics`);
 
-          // Convert to CompanyFinancial format and save to DB
-          const financialsToSave: Partial<CompanyFinancial>[] = allFinancials.map((f: any) => ({
+          // Step 3.6: Check existing data (idempotent processing)
+          let financialsToSave: Partial<CompanyFinancial>[] = allFinancials.map((f: any) => ({
             ticker: ticker.toUpperCase(),
             cik: companyInfo.cik,
             company_name: companyInfo.name,
@@ -313,10 +313,54 @@ export class Helena extends BaseAgent {
             processing_version: '2.0-sec-api'
           }));
 
-          // Save all metrics at once
-          await this.saveFinancials(financialsToSave);
-          const totalMetrics = financialsToSave.length;
-          console.log(`[Helena] ✅ Saved ${totalMetrics} metrics to DB`);
+          // If not forceRefresh, filter out existing data
+          if (!forceRefresh) {
+            console.log(`[Helena] 📋 Checking for existing data (idempotent mode)...`);
+
+            const { data: existingMetrics } = await supabase
+              .from('company_financials')
+              .select('xbrl_tag, period_end_date')
+              .eq('ticker', ticker.toUpperCase());
+
+            if (existingMetrics && existingMetrics.length > 0) {
+              const existingKeys = new Set(
+                existingMetrics.map(m => `${m.xbrl_tag}-${m.period_end_date}`)
+              );
+
+              const beforeCount = financialsToSave.length;
+              financialsToSave = financialsToSave.filter(f => {
+                const key = `${f.xbrl_tag}-${f.period_end_date}`;
+                return !existingKeys.has(key);
+              });
+
+              const skippedCount = beforeCount - financialsToSave.length;
+              console.log(`[Helena] ℹ️ Found ${existingMetrics.length} existing metrics in DB`);
+              console.log(`[Helena] ⏭️ Skipping ${skippedCount} duplicate metrics`);
+              console.log(`[Helena] ✅ Will save ${financialsToSave.length} new metrics`);
+            } else {
+              console.log(`[Helena] ℹ️ No existing data found - will save all ${financialsToSave.length} metrics`);
+            }
+          } else {
+            console.log(`[Helena] 🔄 forceRefresh=true - will upsert all ${financialsToSave.length} metrics`);
+          }
+
+          // Save metrics (only new ones if !forceRefresh)
+          if (financialsToSave.length > 0) {
+            await this.saveFinancials(financialsToSave);
+            console.log(`[Helena] ✅ Saved ${financialsToSave.length} metrics to DB`);
+          } else {
+            console.log(`[Helena] ℹ️ No new metrics to save (all already exist)`);
+          }
+
+          const newMetricsCount = financialsToSave.length;
+
+          // Get total metrics count in DB (for metadata)
+          const { count: totalMetricsInDB } = await supabase
+            .from('company_financials')
+            .select('*', { count: 'exact', head: true })
+            .eq('ticker', ticker.toUpperCase());
+
+          const totalMetrics = totalMetricsInDB || newMetricsCount;
 
           // Update company metadata
           await this.updateCompanyMetadata({
@@ -330,8 +374,15 @@ export class Helena extends BaseAgent {
 
           progress('✅ 완료!');
           console.log(`\n[Helena] ✅ Preparation complete!`);
-          console.log(`[Helena] - Filings found: ${filings.length}`);
-          console.log(`[Helena] - Metrics extracted: ${totalMetrics}`);
+          console.log(`[Helena] - SEC API filings: ${filings.length}`);
+          console.log(`[Helena] - New metrics saved: ${newMetricsCount}`);
+          console.log(`[Helena] - Total metrics in DB: ${totalMetrics}`);
+
+          const statusMessage = forceRefresh
+            ? `✅ ${companyInfo.name} 데이터 재처리 완료!\n- 업데이트: ${newMetricsCount}개 metrics\n- 전체: ${totalMetrics}개 metrics in DB`
+            : newMetricsCount > 0
+              ? `✅ ${companyInfo.name} 데이터 업데이트 완료!\n- 새로 추가: ${newMetricsCount}개 metrics\n- 전체: ${totalMetrics}개 metrics in DB`
+              : `✅ ${companyInfo.name} 데이터 최신 상태!\n- DB에 이미 ${totalMetrics}개 metrics 저장됨\n- 새로운 데이터 없음`;
 
           return {
             success: true,
@@ -340,10 +391,12 @@ export class Helena extends BaseAgent {
               ticker: ticker.toUpperCase(),
               cik: companyInfo.cik,
               filingsProcessed: filings.length,
-              metricsExtracted: totalMetrics,
+              metricsExtracted: newMetricsCount,
+              totalMetricsInDB: totalMetrics,
               sectionsExtracted: 0,
               readyForQuery: totalMetrics > 0,
-              message: `✅ ${companyInfo.name} 데이터 준비 완료! (${totalMetrics}개 XBRL metrics)`
+              isUpdate: newMetricsCount < allFinancials.length,
+              message: statusMessage
             }
           };
         } else {

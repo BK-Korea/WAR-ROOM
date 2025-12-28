@@ -671,6 +671,9 @@ Provide comprehensive financial health assessment:
                 console.log(`[Dorothy] ✅ Helena DB에서 ${helenaFinancials.data.length}개 metrics 조회 완료`);
                 console.log(`[Dorothy] ✅ Helena DB에서 ${helenaSections.data?.length || 0}개 sections 조회 완료`);
 
+                // Analyze data coverage (어떤 년도/분기가 있는지)
+                const dataCoverage = this.analyzeDataCoverage(helenaFinancials.data, companyTicker);
+
                 // Format Helena data for LLM analysis
                 const financialsContext = this.formatHelenaFinancials(helenaFinancials.data);
                 const sectionsContext = this.formatHelenaSections(helenaSections.data || []);
@@ -696,10 +699,16 @@ ${sectionsContext}
 
                 console.log(`[Dorothy] ✓ Helena 데이터 기반 분석 완료`);
 
+                // Build comprehensive answer with data coverage and sources
+                const coverageReport = this.formatDataCoverageReport(dataCoverage);
+                const sourcesList = this.formatSourcesList(helenaFinancials.data);
+
+                const fullAnswer = `${response}\n\n---\n${coverageReport}\n\n${sourcesList}`;
+
                 return {
                   success: true,
                   data: {
-                    answer: response,
+                    answer: fullAnswer,
                     sources: helenaFinancials.data.map((m: any) => ({
                       filing_type: m.filing_type,
                       filing_date: m.filing_date,
@@ -709,7 +718,8 @@ ${sectionsContext}
                     })),
                     dataSource: 'helena_db',
                     executionTime: '< 1 second',
-                    metricsUsed: helenaFinancials.data.length
+                    metricsUsed: helenaFinancials.data.length,
+                    dataCoverage  // 데이터 완전성 정보
                   }
                 };
               } else {
@@ -1245,5 +1255,158 @@ Now extract from the question above:`;
 
     // Non-currency units
     return `${value} ${unit}`;
+  }
+
+  /**
+   * Analyze data coverage - which years/quarters are available
+   */
+  private analyzeDataCoverage(financials: any[], ticker: string): any {
+    // Extract unique filings
+    const filings = new Map<string, any>();
+
+    for (const metric of financials) {
+      const key = `${metric.filing_type}-${metric.filing_date}`;
+      if (!filings.has(key)) {
+        filings.set(key, {
+          type: metric.filing_type,
+          date: metric.filing_date,
+          year: metric.fiscal_year,
+          quarter: metric.fiscal_quarter,
+          periodEnd: metric.period_end_date,
+          accession: metric.filing_accession
+        });
+      }
+    }
+
+    // Group by year
+    const byYear: Record<number, any> = {};
+
+    for (const filing of filings.values()) {
+      const year = filing.year;
+      if (!byYear[year]) {
+        byYear[year] = {
+          year,
+          annual: null,  // 10-K
+          quarters: []   // 10-Q
+        };
+      }
+
+      if (filing.type === '10-K' || filing.type === '20-F') {
+        byYear[year].annual = filing;
+      } else if (filing.type === '10-Q') {
+        byYear[year].quarters.push(filing);
+      }
+    }
+
+    // Calculate completeness
+    const years = Object.keys(byYear).map(Number).sort((a, b) => b - a);  // Descending
+    const currentYear = new Date().getFullYear();
+    const expectedYears = [currentYear, currentYear - 1, currentYear - 2];  // Last 3 years
+
+    const missingData: string[] = [];
+    for (const year of expectedYears) {
+      if (!byYear[year]) {
+        missingData.push(`${year} (전체)`);
+      } else {
+        if (!byYear[year].annual) {
+          missingData.push(`${year} 연간보고서 (10-K)`);
+        }
+        const qCount = byYear[year].quarters.length;
+        if (qCount < 4) {
+          const missingQ = 4 - qCount;
+          missingData.push(`${year} 분기보고서 (${missingQ}개 분기)`);
+        }
+      }
+    }
+
+    const isComplete = missingData.length === 0;
+
+    return {
+      ticker,
+      byYear,
+      years,
+      totalFilings: filings.size,
+      isComplete,
+      missingData,
+      expectedYears
+    };
+  }
+
+  /**
+   * Format data coverage report for user visibility
+   */
+  private formatDataCoverageReport(coverage: any): string {
+    let report = '📊 **사용된 데이터 범위:**\n';
+
+    for (const year of coverage.years.slice(0, 5)) {  // Show max 5 years
+      const yearData = coverage.byYear[year];
+      const annual = yearData.annual ? '✅' : '❌';
+      const qCount = yearData.quarters.length;
+      const quarters = ['Q1', 'Q2', 'Q3', 'Q4']
+        .map((q, i) => {
+          const hasQ = yearData.quarters.some((qf: any) => qf.quarter === i + 1);
+          return hasQ ? '✅' : '❌';
+        })
+        .join(' ');
+
+      report += `- **${year}**: ${quarters} (연간 10-K ${annual})\n`;
+    }
+
+    if (!coverage.isComplete) {
+      report += `\n⚠️ **부분적 데이터**: 일부 filing이 누락되었습니다\n`;
+      report += `**누락된 데이터:**\n`;
+      for (const missing of coverage.missingData.slice(0, 5)) {
+        report += `  - ${missing}\n`;
+      }
+      report += `\n💡 **전체 데이터 받으려면:**\n`;
+      report += `\`@Helena ${coverage.ticker} 데이터 재처리해줘\`\n`;
+    } else {
+      report += `\n✅ **완전한 데이터**: 최근 3년치 모든 filing 확보\n`;
+    }
+
+    return report;
+  }
+
+  /**
+   * Format sources list - which SEC filings were used
+   */
+  private formatSourcesList(financials: any[]): string {
+    // Get unique filings
+    const filingsMap = new Map<string, any>();
+
+    for (const metric of financials) {
+      const key = metric.filing_accession;
+      if (!filingsMap.has(key)) {
+        filingsMap.set(key, {
+          type: metric.filing_type,
+          date: metric.filing_date,
+          accession: metric.filing_accession,
+          metricsCount: 1
+        });
+      } else {
+        filingsMap.get(key).metricsCount++;
+      }
+    }
+
+    const filings = Array.from(filingsMap.values())
+      .sort((a, b) => b.date.localeCompare(a.date))  // Sort by date descending
+      .slice(0, 10);  // Show max 10 filings
+
+    let report = '📁 **출처 (SEC Filings):**\n';
+
+    for (let i = 0; i < filings.length; i++) {
+      const f = filings[i];
+      const secUrl = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${f.accession.split('-')[0]}&type=${f.type}&dateb=&owner=exclude&count=100`;
+      report += `${i + 1}. **${f.type}** (${f.date}) - ${f.metricsCount}개 metrics\n`;
+      report += `   - Accession: \`${f.accession}\`\n`;
+    }
+
+    if (filingsMap.size > 10) {
+      report += `\n... 외 ${filingsMap.size - 10}개 filing\n`;
+    }
+
+    report += `\n*총 ${filingsMap.size}개 SEC filing에서 ${financials.length}개 metrics 사용*\n`;
+
+    return report;
   }
 }
