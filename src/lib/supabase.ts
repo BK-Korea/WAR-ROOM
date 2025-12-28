@@ -302,16 +302,38 @@ export async function checkHelenaDataAvailability(
     };
   }
 
-  // Check company_metadata first
+  // Check company_metadata first (preferred for speed)
   const metadata = await getCompanyMetadata(ticker);
 
   if (!metadata || metadata.filings_count === 0) {
+    // Fallback: Check company_financials directly
+    // This handles cases where Helena saved data but metadata update failed
+    console.log(`[checkHelenaDataAvailability] No metadata for ${ticker}, checking company_financials...`);
+
+    const { count, error } = await supabase
+      .from('company_financials')
+      .select('*', { count: 'exact', head: true })
+      .eq('ticker', ticker.toUpperCase());
+
+    if (error || !count || count === 0) {
+      return {
+        available: false,
+        ticker,
+        year,
+        filings_count: 0,
+        metrics_count: 0,
+        last_update: null
+      };
+    }
+
+    // Data exists in company_financials!
+    console.log(`[checkHelenaDataAvailability] Found ${count} metrics in company_financials`);
     return {
-      available: false,
+      available: true,
       ticker,
       year,
-      filings_count: 0,
-      metrics_count: 0,
+      filings_count: 0,  // Unknown without metadata
+      metrics_count: count,
       last_update: null
     };
   }

@@ -291,7 +291,7 @@ export class Helena extends BaseAgent {
           console.log(`[Helena] ✅ SEC API returned ${allFinancials.length} metrics`);
 
           // Step 3.6: Check existing data (idempotent processing)
-          let financialsToSave: Partial<CompanyFinancial>[] = allFinancials.map((f: any) => {
+          let financialsToSave: Partial<CompanyFinancial>[] = allFinancials.map((f: any, index: number) => {
             // Extract fiscal year from periodEnd (YYYY-MM-DD format)
             const fiscalYear = f.periodEnd ? parseInt(f.periodEnd.split('-')[0]) : new Date().getFullYear();
 
@@ -300,21 +300,26 @@ export class Helena extends BaseAgent {
               ? Math.ceil(parseInt(f.periodEnd.split('-')[1]) / 3)
               : null;
 
+            // Create GUARANTEED UNIQUE filing_accession
+            // Problem: contextRef can be shared by multiple metrics → causes "cannot affect row a second time" error
+            // Solution: Use index to ensure uniqueness
+            const uniqueAccession = `SEC-API-${ticker.toUpperCase()}-${f.periodEnd}-${String(index).padStart(4, '0')}`;
+
             return {
               ticker: ticker.toUpperCase(),
               cik: companyInfo.cik,
               company_name: companyInfo.name,
               filing_type: f.periodType === 'annual' ? '10-K' : '10-Q',
-              filing_date: f.periodEnd,  // Use period end date as filing date
-              filing_accession: f.contextRef || 'SEC-API',
+              filing_date: f.periodEnd,
               period_end_date: f.periodEnd,
+              filing_accession: uniqueAccession,  // GUARANTEED UNIQUE
               fiscal_year: fiscalYear,
               fiscal_quarter: fiscalQuarter,
               metric_name: f.label,
-              metric_value: f.value,  // Use 'value' not 'val'
+              metric_value: f.value,
               metric_unit: f.unit,
               xbrl_tag: f.xbrlTag,
-              xbrl_context: f.contextRef,
+              xbrl_context: f.contextRef || 'N/A',
               xbrl_namespace: f.xbrlTag.split(':')[0],
               source_url: `https://data.sec.gov/api/xbrl/companyfacts/CIK${companyInfo.cik}.json`,
               source_file: 'companyfacts.json',
@@ -322,21 +327,6 @@ export class Helena extends BaseAgent {
               processing_version: '2.0-sec-api'
             };
           });
-
-          // Remove duplicates based on UNIQUE constraint (filing_accession, xbrl_tag, xbrl_context)
-          // This prevents "ON CONFLICT DO UPDATE command cannot affect row a second time" error
-          const beforeDedup = financialsToSave.length;
-          financialsToSave = Array.from(
-            new Map(
-              financialsToSave.map(f => [
-                `${f.filing_accession}-${f.xbrl_tag}-${f.xbrl_context}`,
-                f
-              ])
-            ).values()
-          );
-          if (beforeDedup !== financialsToSave.length) {
-            console.log(`[Helena] 🔧 Removed ${beforeDedup - financialsToSave.length} duplicates from SEC API response`);
-          }
 
           // If not forceRefresh, filter out existing data
           if (!forceRefresh) {
