@@ -297,12 +297,14 @@ export class Helena extends BaseAgent {
           const beforeDedup = allFinancials.length;
 
           let financialsToSave: Partial<CompanyFinancial>[] = allFinancials.map((f: any) => {
-            // Extract fiscal year from periodEnd (YYYY-MM-DD format)
-            const fiscalYear = f.periodEnd ? parseInt(f.periodEnd.split('-')[0]) : new Date().getFullYear();
+            // USE SEC'S FISCAL PERIOD DATA (source of truth!)
+            // NEVER calculate from calendar - companies have different fiscal year ends
+            const fiscalYear = f.fiscalYear || parseInt(f.periodEnd.split('-')[0]);
 
-            // Determine fiscal quarter from periodType
-            const fiscalQuarter = f.periodType === 'quarterly' && f.periodLengthMonths === 3
-              ? Math.ceil(parseInt(f.periodEnd.split('-')[1]) / 3)
+            // Extract fiscal quarter from SEC's fiscalPeriod field
+            // 'Q1' → 1, 'Q2' → 2, 'FY' → null
+            const fiscalQuarter = f.fiscalPeriod && f.fiscalPeriod !== 'FY'
+              ? parseInt(f.fiscalPeriod.substring(1))  // 'Q2' → 2
               : null;
 
             // Create DETERMINISTIC & UNIQUE filing_accession
@@ -317,7 +319,7 @@ export class Helena extends BaseAgent {
               cik: companyInfo.cik,
               company_name: companyInfo.name,
               filing_type: f.periodType === 'annual' ? '10-K' : '10-Q',
-              filing_date: f.periodEnd,
+              filing_date: f.filingDate || f.periodEnd,  // Use actual filing date
               period_end_date: f.periodEnd,
               filing_accession: uniqueAccession,
               fiscal_year: fiscalYear,
@@ -331,22 +333,29 @@ export class Helena extends BaseAgent {
               source_url: `https://data.sec.gov/api/xbrl/companyfacts/CIK${companyInfo.cik}.json`,
               source_file: 'companyfacts.json',
               processed_by: 'Helena',
-              processing_version: '2.0-sec-api'
+              processing_version: '3.0-sec-fiscal-periods'
             };
           });
 
-          // Now deduplicate based on UNIQUE constraint: (filing_accession, xbrl_tag, xbrl_context)
-          const uniqueFinancials = Array.from(
-            new Map(
-              financialsToSave.map(f => [
-                `${f.filing_accession}-${f.xbrl_tag}-${f.xbrl_context}`,
-                f
-              ])
-            ).values()
-          );
+          // CRITICAL: Deduplicate - SEC API returns same data in multiple filings
+          // Strategy: Keep only the LATEST filing for each unique (period_end, metric)
+          // Example: Revenue for Q1 2024 appears in Q1, Q2, Q3 filings → keep only latest
+          const dedupMap = new Map<string, any>();
+
+          for (const financial of financialsToSave) {
+            const key = `${financial.period_end_date}-${financial.xbrl_tag}-${financial.fiscal_year}-${financial.fiscal_quarter}`;
+            const existing = dedupMap.get(key);
+
+            // Keep the one with latest filing_date
+            if (!existing || (financial.filing_date && financial.filing_date > existing.filing_date)) {
+              dedupMap.set(key, financial);
+            }
+          }
+
+          const uniqueFinancials = Array.from(dedupMap.values());
 
           if (beforeDedup !== uniqueFinancials.length) {
-            console.log(`[Helena] 🔧 Removed ${beforeDedup - uniqueFinancials.length} duplicate metrics from SEC API`);
+            console.log(`[Helena] 🔧 Removed ${beforeDedup - uniqueFinancials.length} duplicate metrics (keeping latest filing)`);
           }
 
           financialsToSave = uniqueFinancials;

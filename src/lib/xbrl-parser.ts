@@ -36,6 +36,10 @@ export interface XBRLFinancial {
   periodType?: 'instant' | 'quarterly' | 'ytd' | 'annual' | 'custom';
   periodLengthMonths?: number | null;
   hasDimensions?: boolean; // true = segment breakdown, false = consolidated
+  // SEC API fiscal period data (source of truth)
+  fiscalPeriod?: string;  // 'Q1', 'Q2', 'Q3', 'Q4', 'FY' from SEC
+  fiscalYear?: number;     // 2024, 2025 etc from SEC
+  filingDate?: string;     // Filing date from SEC (for deduplication)
 }
 
 export interface XBRLParseResult {
@@ -640,6 +644,10 @@ export async function fetchCompanyFactsFromSEC(cik: string, ticker: string, comp
           periodType: periodType as any,
           periodLengthMonths: item.fp === 'FY' ? 12 : 3,
           hasDimensions: false, // SEC API gives consolidated by default
+          // SEC API fiscal period data (CRITICAL: source of truth!)
+          fiscalPeriod: item.fp,      // 'Q1', 'Q2', 'Q3', 'Q4', 'FY'
+          fiscalYear: item.fy,        // 2024, 2025 etc
+          filingDate: item.filed,     // Filing date for deduplication
         });
       }
     }
