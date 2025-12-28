@@ -323,6 +323,21 @@ export class Helena extends BaseAgent {
             };
           });
 
+          // Remove duplicates based on UNIQUE constraint (filing_accession, xbrl_tag, xbrl_context)
+          // This prevents "ON CONFLICT DO UPDATE command cannot affect row a second time" error
+          const beforeDedup = financialsToSave.length;
+          financialsToSave = Array.from(
+            new Map(
+              financialsToSave.map(f => [
+                `${f.filing_accession}-${f.xbrl_tag}-${f.xbrl_context}`,
+                f
+              ])
+            ).values()
+          );
+          if (beforeDedup !== financialsToSave.length) {
+            console.log(`[Helena] 🔧 Removed ${beforeDedup - financialsToSave.length} duplicates from SEC API response`);
+          }
+
           // If not forceRefresh, filter out existing data
           if (!forceRefresh) {
             console.log(`[Helena] 📋 Checking for existing data (idempotent mode)...`);
