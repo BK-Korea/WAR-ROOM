@@ -290,23 +290,13 @@ export class Helena extends BaseAgent {
         if (allFinancials.length > 0) {
           console.log(`[Helena] ✅ SEC API returned ${allFinancials.length} metrics`);
 
-          // Step 3.6a: FIRST remove duplicates from SEC API response
-          // Duplicate key: xbrl_tag + context + periodEnd (semantically unique metric)
+          // Step 3.6: Map to database schema with UNIQUE filing_accession
+          // CRITICAL: filing_accession must be unique for each metric to match DB UNIQUE constraint
+          // DB constraint: UNIQUE(filing_accession, xbrl_tag, xbrl_context)
+          // Solution: filing_accession = contextRef + xbrlTag + periodEnd (all combined)
           const beforeDedup = allFinancials.length;
-          const uniqueFinancials = Array.from(
-            new Map(
-              allFinancials.map((f: any) => [
-                `${f.xbrlTag}-${f.contextRef || 'N/A'}-${f.periodEnd}`,
-                f
-              ])
-            ).values()
-          );
-          if (beforeDedup !== uniqueFinancials.length) {
-            console.log(`[Helena] 🔧 Removed ${beforeDedup - uniqueFinancials.length} duplicate metrics from SEC API`);
-          }
 
-          // Step 3.6b: THEN map to database schema with DETERMINISTIC filing_accession
-          let financialsToSave: Partial<CompanyFinancial>[] = uniqueFinancials.map((f: any) => {
+          let financialsToSave: Partial<CompanyFinancial>[] = allFinancials.map((f: any) => {
             // Extract fiscal year from periodEnd (YYYY-MM-DD format)
             const fiscalYear = f.periodEnd ? parseInt(f.periodEnd.split('-')[0]) : new Date().getFullYear();
 
@@ -315,11 +305,12 @@ export class Helena extends BaseAgent {
               ? Math.ceil(parseInt(f.periodEnd.split('-')[1]) / 3)
               : null;
 
-            // Create DETERMINISTIC filing_accession
-            // CRITICAL: Must be same for same metric across multiple runs!
-            // Use contextRef (XBRL unique identifier) as primary key
-            // Fallback to ticker-tag-period for metrics without contextRef
-            const uniqueAccession = f.contextRef || `SEC-API-${ticker.toUpperCase()}-${f.xbrlTag.replace(/:/g, '-')}-${f.periodEnd}`;
+            // Create DETERMINISTIC & UNIQUE filing_accession
+            // Must include contextRef + xbrlTag + periodEnd to be truly unique
+            // This prevents "ON CONFLICT DO UPDATE command cannot affect row a second time" error
+            const contextPart = f.contextRef || 'N/A';
+            const tagPart = f.xbrlTag.replace(/:/g, '-');
+            const uniqueAccession = `${contextPart}-${tagPart}-${f.periodEnd}`;
 
             return {
               ticker: ticker.toUpperCase(),
@@ -343,6 +334,22 @@ export class Helena extends BaseAgent {
               processing_version: '2.0-sec-api'
             };
           });
+
+          // Now deduplicate based on UNIQUE constraint: (filing_accession, xbrl_tag, xbrl_context)
+          const uniqueFinancials = Array.from(
+            new Map(
+              financialsToSave.map(f => [
+                `${f.filing_accession}-${f.xbrl_tag}-${f.xbrl_context}`,
+                f
+              ])
+            ).values()
+          );
+
+          if (beforeDedup !== uniqueFinancials.length) {
+            console.log(`[Helena] 🔧 Removed ${beforeDedup - uniqueFinancials.length} duplicate metrics from SEC API`);
+          }
+
+          financialsToSave = uniqueFinancials;
 
           // If not forceRefresh, filter out existing data
           if (!forceRefresh) {
