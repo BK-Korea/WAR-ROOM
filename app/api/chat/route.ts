@@ -268,29 +268,29 @@ export async function POST(req: NextRequest) {
                 console.log('[Helena] 질문:', message);
 
                 // ============================================
-                // Extract ticker/company name from message
-                // SECClient's LLM will handle natural language extraction
+                // Extract ticker/company name from message using LLM
                 // Supports: ticker symbols (AAPL), Korean (애플, 버티컬 에어로스페이스), English (Apple, Vertical Aerospace)
                 // ============================================
                 console.log('[Helena] Extracting ticker/company from message:', message);
 
-                // Remove @mentions to avoid passing agent names to LLM
-                const cleanMessage = message.replace(/@[A-Za-z가-힣]+/g, '').trim();
-                console.log('[Helena] Message after removing @mentions:', cleanMessage);
+                // Remove @mentions and common phrases to avoid passing to LLM
+                let cleanMessage = message.replace(/@[A-Za-z가-힣]+/g, '').trim();
+                cleanMessage = cleanMessage.replace(/데이터.*(준비|가져|받|조회|다운|로드).*/gi, '').trim();
+                cleanMessage = cleanMessage.replace(/\(?\s*(forceRefresh|refresh|재처리|다시)\s*\)?/gi, '').trim();
+                cleanMessage = cleanMessage.replace(/\d+\s*년간?/g, '').trim();  // Remove "2년간" etc
 
-                // Pass the entire message to Helena
-                // SECClient's LLM will extract the ticker intelligently
-                const ticker = cleanMessage;
+                console.log('[Helena] Cleaned message for ticker extraction:', cleanMessage);
 
-                if (!ticker) {
-                  content = '❌ 메시지를 찾을 수 없어.\n\n예: "@Helena JOBY 데이터 준비해줘"';
+                if (!cleanMessage) {
+                  content = '❌ 회사명 또는 ticker를 찾을 수 없어.\n\n예: "@Helena JOBY 데이터 준비해줘" 또는 "@Helena Apple 데이터 가져와줘"';
                   responses.push({
                     agent: 'Helena',
                     content,
                     emoji: '📚',
-                    status: '메시지 필요'
+                    status: '회사명 필요'
                   });
                 } else {
+                  const ticker = cleanMessage;
                   // Parse forceRefresh from message
                   const forceRefresh = /forceRefresh|재처리|다시|refresh/i.test(message);
 
