@@ -71,23 +71,30 @@ export class SECClient {
     try {
       console.log(`[SEC Client] 🤖 Using LLM to extract ticker from: "${input}"`);
 
-      const prompt = `당신은 금융 데이터 전문가입니다. 사용자의 자연어 입력에서 미국 주식 ticker symbol을 추출하세요.
+      const prompt = `You are a financial data expert. Extract the US stock ticker symbol from the user's natural language input.
 
-입력: "${input}"
+Input: "${input}"
 
-규칙:
-1. 한글 회사명 → 영문 ticker로 변환
-   예: "애플" → AAPL, "테슬라" → TSLA, "조비" → JOBY
-2. 영문 회사명 → ticker로 변환
-   예: "Apple" → AAPL, "Joby Aviation" → JOBY
-3. 이미 ticker인 경우 → 그대로 반환
-   예: "AAPL" → AAPL, "TSLA" → TSLA
-4. 여러 회사가 언급되면 첫 번째 회사 사용
-5. 회사명을 찾을 수 없으면 null 반환
+Rules:
+1. Korean company name → English ticker
+   Examples: "애플" → AAPL, "테슬라" → TSLA, "조비" → JOBY, "버티컬 에어로스페이스" → EVTL
+2. English company name → ticker (match EXACT company names carefully)
+   Examples:
+   - "Apple" or "Apple Inc" → AAPL
+   - "Tesla" → TSLA
+   - "Joby Aviation" → JOBY
+   - "Vertical Aerospace" → EVTL (NOT JOBY - different company!)
+   - "Microsoft" → MSFT
+3. Already a ticker → return as-is
+   Examples: "AAPL" → AAPL, "EVTL" → EVTL, "TSLA" → TSLA
+4. If multiple companies mentioned, use the FIRST one
+5. If no company found, return null
 
-JSON만 반환하세요:
+IMPORTANT: "Vertical Aerospace" (EVTL) and "Joby Aviation" (JOBY) are DIFFERENT companies. Do NOT confuse them.
+
+Return ONLY valid JSON:
 {"ticker": "AAPL", "company": "Apple Inc.", "confidence": "high"}
-또는
+OR
 {"ticker": null, "company": null, "confidence": "none"}`;
 
       const response = await glmClient.chat({
