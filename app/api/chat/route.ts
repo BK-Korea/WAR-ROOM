@@ -268,88 +268,27 @@ export async function POST(req: NextRequest) {
                 console.log('[Helena] 질문:', message);
 
                 // ============================================
-                // Extract ticker/company name from message or conversation history
-                // Supports: ticker symbols (AAPL), Korean (애플), English (Apple)
-                // SECClient will use LLM to convert natural language to ticker
+                // Extract ticker/company name from message
+                // SECClient's LLM will handle natural language extraction
+                // Supports: ticker symbols (AAPL), Korean (애플, 버티컬 에어로스페이스), English (Apple, Vertical Aerospace)
                 // ============================================
-                let ticker: string | null = null;
-
-                // Reserved words that are NOT tickers
-                const RESERVED_WORDS = new Set([
-                  'SEC', 'API', 'USA', 'CEO', 'CFO', 'IPO', 'ETF', 'LLC', 'INC', 'LTD',
-                  'THE', 'AND', 'FOR', 'WITH', 'DATA', 'YEAR', 'FILE'
-                ]);
-
-                // Try current message first
                 console.log('[Helena] Extracting ticker/company from message:', message);
 
-                // Remove @mentions to avoid matching agent names (e.g., @헬레나 → skip it)
+                // Remove @mentions to avoid passing agent names to LLM
                 const cleanMessage = message.replace(/@[A-Za-z가-힣]+/g, '').trim();
                 console.log('[Helena] Message after removing @mentions:', cleanMessage);
 
-                // Step 1: Try to find uppercase ticker symbol FIRST (AAPL, JOBY, etc.)
-                // This has priority because it's more explicit
-                const uppercaseMatches = cleanMessage.match(/\b[A-Z]{2,5}\b/g);
-                if (uppercaseMatches) {
-                  for (const candidate of uppercaseMatches) {
-                    if (!RESERVED_WORDS.has(candidate)) {
-                      ticker = candidate;
-                      console.log(`[Helena] ✓ Found ticker symbol: ${ticker}`);
-                      break;
-                    }
-                  }
-                }
-
-                // Step 2: If no ticker found, try Korean company name (애플, 조비, etc.)
-                if (!ticker) {
-                  const koreanMatch = cleanMessage.match(/([가-힣]{2,10})/);
-                  if (koreanMatch) {
-                    ticker = koreanMatch[1];
-                    console.log(`[Helena] ✓ Found Korean company name: ${ticker}`);
-                  }
-                }
-
-                // If not found, search conversation history (recent to old)
-                if (!ticker && history.length > 0) {
-                  console.log('[Helena] Ticker not in message, searching history...');
-
-                  // Search user messages in reverse order (most recent first)
-                  for (let i = history.length - 1; i >= 0; i--) {
-                    const msg = history[i];
-                    if (msg.role === 'user') {
-                      // Priority 1: Try ticker symbols FIRST (more explicit)
-                      const potentialTickers = msg.content.match(/\b[A-Z]{2,5}\b/g);
-                      if (potentialTickers) {
-                        for (const candidate of potentialTickers) {
-                          if (!RESERVED_WORDS.has(candidate)) {
-                            ticker = candidate;
-                            console.log(`[Helena] ✓ Found ticker in history: ${ticker} (from: "${msg.content.substring(0, 50)}...")`);
-                            break;
-                          }
-                        }
-                        if (ticker) break;
-                      }
-
-                      // Priority 2: Try Korean company name (fallback)
-                      if (!ticker) {
-                        const historyKoreanMatch = msg.content.match(/([가-힣]{2,10})/);
-                        if (historyKoreanMatch) {
-                          ticker = historyKoreanMatch[1];
-                          console.log(`[Helena] ✓ Found Korean company in history: ${ticker} (from: "${msg.content.substring(0, 50)}...")`);
-                          break;
-                        }
-                      }
-                    }
-                  }
-                }
+                // Pass the entire message to Helena
+                // SECClient's LLM will extract the ticker intelligently
+                const ticker = cleanMessage;
 
                 if (!ticker) {
-                  content = '❌ Ticker symbol을 찾을 수 없어.\n\n예: "@Helena JOBY 데이터 준비해줘"';
+                  content = '❌ 메시지를 찾을 수 없어.\n\n예: "@Helena JOBY 데이터 준비해줘"';
                   responses.push({
                     agent: 'Helena',
                     content,
                     emoji: '📚',
-                    status: '티커 필요'
+                    status: '메시지 필요'
                   });
                 } else {
                   // Parse forceRefresh from message
