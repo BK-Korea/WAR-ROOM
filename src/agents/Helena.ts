@@ -365,6 +365,11 @@ export class Helena extends BaseAgent {
 
           financialsToSave = uniqueFinancials;
 
+          // GOLDMAN SACHS-GRADE: Convert YTD to standalone quarterly values + generate Q4
+          console.log(`[Helena] 📊 Converting YTD to standalone quarterly values...`);
+          financialsToSave = this.convertYTDToQuarterly(financialsToSave, ticker.toUpperCase(), companyInfo);
+          console.log(`[Helena] ✅ Conversion complete: ${financialsToSave.length} metrics (including Q4)`);
+
           // If not forceRefresh, filter out existing data
           if (!forceRefresh) {
             console.log(`[Helena] 📋 Checking for existing data (idempotent mode)...`);
@@ -1044,6 +1049,132 @@ export class Helena extends BaseAgent {
     }
 
     console.log(`[Helena] ✅ company_metadata updated successfully`);
+  }
+
+  /**
+   * Convert YTD (Year-to-Date) values to standalone quarterly values + generate Q4
+   *
+   * CRITICAL for Goldman Sachs-grade accuracy:
+   * - SEC reports Income Statement metrics as YTD cumulative
+   * - Q1 = standalone, Q2 = Q1+Q2, Q3 = Q1+Q2+Q3
+   * - We convert to: Q1 standalone, Q2 standalone, Q3 standalone, Q4 standalone
+   * - Q4 is GENERATED from FY - Q3_YTD
+   *
+   * Income Statement (YTD): Revenue, Net Income, Gross Profit, Operating Income
+   * Balance Sheet (instant): Assets, Liabilities, Cash, Equity - NO conversion needed
+   */
+  private convertYTDToQuarterly(
+    financials: Partial<CompanyFinancial>[],
+    ticker: string,
+    companyInfo: { cik: string; name: string }
+  ): Partial<CompanyFinancial>[] {
+    // Income Statement metrics that are reported as YTD
+    const incomeStatementMetrics = new Set([
+      'us-gaap:Revenues',
+      'us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax',
+      'us-gaap:SalesRevenueNet',
+      'us-gaap:NetIncomeLoss',
+      'us-gaap:GrossProfit',
+      'us-gaap:OperatingIncomeLoss',
+    ]);
+
+    // Separate Balance Sheet (instant/point-in-time) from Income Statement (YTD)
+    const balanceSheetMetrics = financials.filter(f => !incomeStatementMetrics.has(f.xbrl_tag || ''));
+    const incomeMetrics = financials.filter(f => incomeStatementMetrics.has(f.xbrl_tag || ''));
+
+    console.log(`[Helena] - Income Statement (YTD): ${incomeMetrics.length} metrics`);
+    console.log(`[Helena] - Balance Sheet (instant): ${balanceSheetMetrics.length} metrics`);
+
+    // Group income metrics by fiscal_year and xbrl_tag
+    const grouped = new Map<string, Map<number | null, Partial<CompanyFinancial>>>();
+
+    for (const metric of incomeMetrics) {
+      const key = `${metric.fiscal_year}-${metric.xbrl_tag}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, new Map());
+      }
+      grouped.get(key)!.set(metric.fiscal_quarter, metric);
+    }
+
+    const convertedMetrics: Partial<CompanyFinancial>[] = [];
+
+    // Process each fiscal year + metric combination
+    for (const [key, quarters] of grouped.entries()) {
+      const [fiscalYear, xbrlTag] = key.split('-');
+
+      const fy = quarters.get(null);  // Full year (FY)
+      const q1 = quarters.get(1);     // Q1 YTD (standalone)
+      const q2 = quarters.get(2);     // Q2 YTD (cumulative)
+      const q3 = quarters.get(3);     // Q3 YTD (cumulative)
+
+      // Q1: Already standalone (no conversion needed)
+      if (q1) {
+        convertedMetrics.push(q1);
+      }
+
+      // Q2: Q2_standalone = Q2_YTD - Q1
+      if (q2 && q1) {
+        const q2Standalone = {
+          ...q2,
+          metric_value: (q2.metric_value || 0) - (q1.metric_value || 0),
+        };
+        convertedMetrics.push(q2Standalone);
+      } else if (q2) {
+        // No Q1 data, keep Q2 as is (might be standalone already)
+        convertedMetrics.push(q2);
+      }
+
+      // Q3: Q3_standalone = Q3_YTD - Q2_YTD
+      if (q3 && q2) {
+        const q3Standalone = {
+          ...q3,
+          metric_value: (q3.metric_value || 0) - (q2.metric_value || 0),
+        };
+        convertedMetrics.push(q3Standalone);
+      } else if (q3 && q1) {
+        // No Q2 but has Q1: Q3_standalone = Q3_YTD - Q1
+        const q3Standalone = {
+          ...q3,
+          metric_value: (q3.metric_value || 0) - (q1.metric_value || 0),
+        };
+        convertedMetrics.push(q3Standalone);
+      } else if (q3) {
+        // No prior quarters, keep as is
+        convertedMetrics.push(q3);
+      }
+
+      // Q4: GENERATE from FY - Q3_YTD
+      if (fy && q3) {
+        const q4Value = (fy.metric_value || 0) - (q3.metric_value || 0);
+
+        // Derive Q4 period_end_date from FY (usually same as FY end date)
+        const fyDate = new Date(fy.period_end_date || '');
+
+        const q4Metric: Partial<CompanyFinancial> = {
+          ...fy,
+          fiscal_quarter: 4,
+          metric_value: q4Value,
+          period_end_date: fy.period_end_date,  // Q4 ends on FY end date
+          filing_accession: `${fy.filing_accession}-Q4-DERIVED`,  // Mark as derived
+          filing_type: '10-Q',  // Q4 would be 10-Q if reported
+          processed_by: 'Helena',
+          processing_version: '3.1-ytd-conversion',
+        };
+
+        convertedMetrics.push(q4Metric);
+      }
+
+      // Also keep FY (annual) data
+      if (fy) {
+        convertedMetrics.push(fy);
+      }
+    }
+
+    console.log(`[Helena] - Converted ${incomeMetrics.length} YTD → ${convertedMetrics.length} standalone`);
+    console.log(`[Helena] - Generated ${convertedMetrics.filter(m => m.fiscal_quarter === 4).length} Q4 metrics`);
+
+    // Combine converted income metrics + unchanged balance sheet metrics
+    return [...convertedMetrics, ...balanceSheetMetrics];
   }
 
   /**
