@@ -1329,8 +1329,7 @@ Now extract from the question above:`;
       years,
       totalFilings: filings.size,
       isComplete,
-      missingData,
-      expectedYears
+      missingData
     };
   }
 
