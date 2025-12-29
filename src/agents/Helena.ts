@@ -1093,7 +1093,9 @@ export class Helena extends BaseAgent {
       if (!grouped.has(key)) {
         grouped.set(key, new Map());
       }
-      grouped.get(key)!.set(metric.fiscal_quarter, metric);
+      // Handle undefined fiscal_quarter (treat as null for FY)
+      const fiscalQuarter = metric.fiscal_quarter ?? null;
+      grouped.get(key)!.set(fiscalQuarter, metric);
     }
 
     const convertedMetrics: Partial<CompanyFinancial>[] = [];
