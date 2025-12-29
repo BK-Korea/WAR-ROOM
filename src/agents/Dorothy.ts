@@ -657,7 +657,7 @@ Provide comprehensive financial health assessment:
                 .select('*')
                 .eq('ticker', companyTicker.toUpperCase())
                 .order('period_end_date', { ascending: false })
-                .limit(100);
+                .limit(1000);  // Increased from 100 to support 10 years of data
 
               // Query sections from Helena DB
               const helenaSections = await supabase
