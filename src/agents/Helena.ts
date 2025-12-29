@@ -247,6 +247,29 @@ export class Helena extends BaseAgent {
         }
       }
 
+      // Step 2.5: Delete existing data if forceRefresh
+      if (forceRefresh) {
+        progress('기존 데이터 삭제 중...');
+        console.log(`[Helena] 🗑️ forceRefresh=true - Deleting existing data for ${ticker}...`);
+
+        const { error: deleteError } = await supabase
+          .from('company_financials')
+          .delete()
+          .eq('ticker', ticker.toUpperCase());
+
+        if (deleteError) {
+          console.error('[Helena] ❌ Failed to delete existing data:', deleteError);
+        } else {
+          console.log('[Helena] ✅ Existing data deleted');
+        }
+
+        // Also delete metadata
+        await supabase
+          .from('company_metadata')
+          .delete()
+          .eq('ticker', ticker.toUpperCase());
+      }
+
       // Step 3: Fetch filings from SEC
       progress(`SEC Edgar에서 ${ticker} filing 다운로드 중...`);
       console.log(`[Helena] 📥 Fetching filings from SEC Edgar...`);
