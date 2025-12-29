@@ -595,11 +595,10 @@ export async function fetchCompanyFactsFromSEC(
     const data = response.data;
     console.log(`[SEC API] ✓ Received facts for ${data.entityName}`);
 
-    // Calculate cutoff date (years ago from today)
-    const cutoffDate = new Date();
-    cutoffDate.setFullYear(cutoffDate.getFullYear() - years);
-    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
-    console.log(`[SEC API] Filtering data after: ${cutoffDateStr}`);
+    // Calculate fiscal year range
+    const currentFiscalYear = new Date().getFullYear();
+    const oldestFiscalYear = currentFiscalYear - years + 1;
+    console.log(`[SEC API] Filtering fiscal years: ${oldestFiscalYear} - ${currentFiscalYear} (${years} years)`);
 
     // Extract financials from us-gaap facts
     const financials: XBRLFinancial[] = [];
@@ -641,8 +640,12 @@ export async function fetchCompanyFactsFromSEC(
           continue;
         }
 
-        // Date filter: Only include data from last N years
-        if (item.end && item.end < cutoffDateStr) {
+        // Date filter: Use fiscal year instead of period_end for accurate filtering
+        // This ensures we get exactly N years of data
+        const currentFiscalYear = new Date().getFullYear();
+        const oldestFiscalYear = currentFiscalYear - years + 1;
+
+        if (item.fy && item.fy < oldestFiscalYear) {
           continue;
         }
 
