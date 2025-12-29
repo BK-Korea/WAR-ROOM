@@ -1301,21 +1301,23 @@ Now extract from the question above:`;
     // Calculate completeness
     const years = Object.keys(byYear).map(Number).sort((a, b) => b - a);  // Descending
     const currentYear = new Date().getFullYear();
-    const expectedYears = [currentYear, currentYear - 1, currentYear - 2];  // Last 3 years
 
+    // Check completeness for years that actually have data
+    // (Don't assume we need 3 years - show what we have)
     const missingData: string[] = [];
-    for (const year of expectedYears) {
-      if (!byYear[year]) {
-        missingData.push(`${year} (전체)`);
-      } else {
-        if (!byYear[year].annual) {
-          missingData.push(`${year} 연간보고서 (10-K)`);
-        }
-        const qCount = byYear[year].quarters.length;
-        if (qCount < 4) {
-          const missingQ = 4 - qCount;
-          missingData.push(`${year} 분기보고서 (${missingQ}개 분기)`);
-        }
+
+    // Only check years that have at least some data
+    for (const year of years.slice(0, 5)) {  // Check up to 5 most recent years
+      const yearData = byYear[year];
+
+      if (!yearData.annual) {
+        missingData.push(`${year} 연간보고서 (10-K)`);
+      }
+
+      const qCount = yearData.quarters.length;
+      if (qCount < 4 && qCount > 0) {
+        const missingQ = 4 - qCount;
+        missingData.push(`${year} 분기보고서 (${missingQ}개 분기)`);
       }
     }
 
