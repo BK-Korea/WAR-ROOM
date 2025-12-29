@@ -312,7 +312,11 @@ export class Helena extends BaseAgent {
         );
 
         if (allFinancials.length > 0) {
-          console.log(`[Helena] ✅ SEC API returned ${allFinancials.length} metrics`);
+          console.log(`[Helena] ✅ SEC API returned ${allFinancials.length} metrics (raw data)`);
+
+          // Analyze what years are in the raw data
+          const rawYears = new Set(allFinancials.map((f: any) => f.fiscalYear).filter(Boolean));
+          console.log(`[Helena] 📅 Raw data fiscal years: ${Array.from(rawYears).sort((a, b) => a - b).join(', ')}`);
 
           // Step 3.6: Map to database schema with UNIQUE filing_accession
           // CRITICAL: filing_accession must be unique for each metric to match DB UNIQUE constraint
@@ -384,15 +388,23 @@ export class Helena extends BaseAgent {
           const uniqueFinancials = Array.from(dedupMap.values());
 
           if (beforeDedup !== uniqueFinancials.length) {
-            console.log(`[Helena] 🔧 Removed ${beforeDedup - uniqueFinancials.length} duplicate metrics (keeping latest filing)`);
+            console.log(`[Helena] 🔧 Deduplication: ${beforeDedup} → ${uniqueFinancials.length} metrics (removed ${beforeDedup - uniqueFinancials.length} duplicates)`);
           }
+
+          // Analyze years after dedup
+          const dedupYears = new Set(uniqueFinancials.map((f: any) => f.fiscal_year).filter(Boolean));
+          console.log(`[Helena] 📅 After dedup fiscal years: ${Array.from(dedupYears).sort((a, b) => a - b).join(', ')}`);
 
           financialsToSave = uniqueFinancials;
 
           // GOLDMAN SACHS-GRADE: Convert YTD to standalone quarterly values + generate Q4
           console.log(`[Helena] 📊 Converting YTD to standalone quarterly values...`);
           financialsToSave = this.convertYTDToQuarterly(financialsToSave, ticker.toUpperCase(), companyInfo);
-          console.log(`[Helena] ✅ Conversion complete: ${financialsToSave.length} metrics (including Q4)`);
+          console.log(`[Helena] ✅ YTD Conversion complete: ${financialsToSave.length} metrics (including Q4)`);
+
+          // Analyze years after YTD conversion
+          const finalYears = new Set(financialsToSave.map((f: any) => f.fiscal_year).filter(Boolean));
+          console.log(`[Helena] 📅 Final fiscal years to save: ${Array.from(finalYears).sort((a, b) => a - b).join(', ')}`);
 
           // If not forceRefresh, filter out existing data
           if (!forceRefresh) {
