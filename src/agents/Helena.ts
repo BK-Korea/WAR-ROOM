@@ -147,7 +147,21 @@ export class Helena extends BaseAgent {
    * This is a background task that can take 5-10 minutes
    */
   private async prepareCompanyData(params: any, context: AgentContext): Promise<TaskResult> {
-    const { ticker, years = 3, filingTypes = ['10-K', '10-Q', '20-F'], forceRefresh = false, onProgress } = params;
+    // Goldman Sachs-grade: Collect ALL material SEC filings
+    const defaultFilingTypes = [
+      // Phase 1: Core financial statements + material events
+      '10-K', '10-Q', '8-K',
+      // Phase 2: Ownership & insider trading
+      '13D', '13G', 'SC 13D', 'SC 13G', '3', '4', '5',
+      // Phase 3: Capital raising & governance
+      'S-1', 'S-3', '424B1', '424B3', '424B5', 'DEF 14A', 'DEFA14A',
+      // Phase 4: Institutional holdings
+      '13F',
+      // Foreign filers
+      '20-F', '6-K'
+    ];
+
+    const { ticker, years = 3, filingTypes = defaultFilingTypes, forceRefresh = false, onProgress } = params;
 
     // Progress callback helper
     const progress = (message: string) => {
@@ -274,9 +288,17 @@ export class Helena extends BaseAgent {
       progress(`SEC Edgar에서 ${ticker} filing 다운로드 중...`);
       console.log(`[Helena] 📥 Fetching filings from SEC Edgar...`);
 
-      // Smart limit: 1 per year for annual (10-K), 4 per year for quarterly (10-Q)
-      const hasQuarterly = filingTypes.some((t: string) => t === '10-Q');
-      const limit = hasQuarterly ? years * 4 : years * 1;
+      // Goldman Sachs-grade: Smart limit based on filing type characteristics
+      // - Annual reports (10-K, 20-F): 1 per year
+      // - Quarterly reports (10-Q): 4 per year
+      // - Material events (8-K): ~20 per year
+      // - Insider trades (Form 4): ~50 per year (high frequency)
+      // - Ownership (13D/13G): ~10 per year
+      // - Capital raising (S-3, 424B): ~5 per year
+      // - Proxy (DEF 14A): 1 per year
+      // - Institutional (13F): 4 per year (quarterly)
+      // Total: ~100 filings per year for comprehensive coverage
+      const limit = years * 100;  // Generous limit for all filing types
       const filings = await secClient.getFilings(companyInfo.cik, filingTypes, limit);
 
       console.log(`[Helena] ✓ Found ${filings.length} filings`);

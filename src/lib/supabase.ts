@@ -370,6 +370,177 @@ export async function checkHelenaDataAvailability(
 }
 
 // =====================================================
+// Goldman Sachs-Grade: Save Non-Financial Filings
+// =====================================================
+
+/**
+ * Save ownership change (13D/13G) to database
+ */
+export async function saveOwnershipChange(data: any) {
+  if (!isSupabaseConfigured()) {
+    console.warn('[saveOwnershipChange] Supabase not configured, skipping save');
+    return { error: 'Supabase not configured' };
+  }
+
+  const { data: result, error } = await supabase
+    .from('ownership_changes')
+    .upsert({
+      ticker: data.ticker,
+      cik: data.cik,
+      company_name: data.companyName,
+      filing_type: data.filingType,
+      filing_date: data.filingDate,
+      accession_number: data.accessionNumber,
+      reporter_name: data.reporterName,
+      reporter_cik: data.reporterCik,
+      reporter_type: data.reporterType,
+      shares_owned: data.sharesOwned,
+      ownership_percent: data.ownershipPercent,
+      purpose: data.purpose,
+      has_control_intent: data.hasControlIntent,
+      voting_rights: data.votingRights,
+      acquisition_date: data.acquisitionDate,
+      price_per_share: data.pricePerShare,
+      source_url: data.sourceUrl,
+      raw_text: data.rawText,
+    }, { onConflict: 'accession_number' });
+
+  if (error) {
+    console.error('[saveOwnershipChange] Error:', error);
+  }
+
+  return { data: result, error };
+}
+
+/**
+ * Save insider transaction (Form 4) to database
+ */
+export async function saveInsiderTransaction(data: any) {
+  if (!isSupabaseConfigured()) {
+    console.warn('[saveInsiderTransaction] Supabase not configured, skipping save');
+    return { error: 'Supabase not configured' };
+  }
+
+  const { data: result, error } = await supabase
+    .from('insider_transactions')
+    .upsert({
+      ticker: data.ticker,
+      cik: data.cik,
+      company_name: data.companyName,
+      filing_type: data.filingType,
+      filing_date: data.filingDate,
+      accession_number: data.accessionNumber,
+      reporter_name: data.reporterName,
+      reporter_cik: data.reporterCik,
+      position: data.position,
+      is_director: data.isDirector,
+      is_officer: data.isOfficer,
+      is_ten_percent_owner: data.isTenPercentOwner,
+      transaction_date: data.transactionDate,
+      transaction_type: data.transactionType,
+      transaction_code: data.transactionCode,
+      shares_traded: data.sharesTraded,
+      price_per_share: data.pricePerShare,
+      total_value: data.totalValue,
+      shares_owned_after: data.sharesOwnedAfter,
+      ownership_percent_after: data.ownershipPercentAfter,
+      is_derivative: data.isDerivative,
+      derivative_type: data.derivativeType,
+      source_url: data.sourceUrl,
+      raw_text: data.rawText,
+    }, { onConflict: 'accession_number' });
+
+  if (error) {
+    console.error('[saveInsiderTransaction] Error:', error);
+  }
+
+  return { data: result, error };
+}
+
+/**
+ * Save capital raise (S-3, 424B) to database
+ */
+export async function saveCapitalRaise(data: any) {
+  if (!isSupabaseConfigured()) {
+    console.warn('[saveCapitalRaise] Supabase not configured, skipping save');
+    return { error: 'Supabase not configured' };
+  }
+
+  const { data: result, error } = await supabase
+    .from('capital_raises')
+    .upsert({
+      ticker: data.ticker,
+      cik: data.cik,
+      company_name: data.companyName,
+      filing_type: data.filingType,
+      filing_date: data.filingDate,
+      accession_number: data.accessionNumber,
+      offering_type: data.offeringType,
+      offering_status: data.offeringStatus,
+      shares_offered: data.sharesOffered,
+      shares_outstanding_before: data.sharesOutstandingBefore,
+      shares_outstanding_after: data.sharesOutstandingAfter,
+      price_per_share: data.pricePerShare,
+      price_range_low: data.priceRangeLow,
+      price_range_high: data.priceRangeHigh,
+      gross_proceeds: data.grossProceeds,
+      underwriting_discount: data.underwritingDiscount,
+      net_proceeds: data.netProceeds,
+      dilution_percent: data.dilutionPercent,
+      use_of_proceeds: data.useOfProceeds,
+      lead_underwriter: data.leadUnderwriter,
+      all_underwriters: data.allUnderwriters,
+      has_greenshoe: data.hasGreenshoe,
+      greenshoe_shares: data.greenshoeShares,
+      source_url: data.sourceUrl,
+      raw_text: data.rawText,
+    }, { onConflict: 'accession_number' });
+
+  if (error) {
+    console.error('[saveCapitalRaise] Error:', error);
+  }
+
+  return { data: result, error };
+}
+
+/**
+ * Save material event (8-K) to database
+ */
+export async function saveMaterialEvent(data: any) {
+  if (!isSupabaseConfigured()) {
+    console.warn('[saveMaterialEvent] Supabase not configured, skipping save');
+    return { error: 'Supabase not configured' };
+  }
+
+  const { data: result, error } = await supabase
+    .from('material_events')
+    .upsert({
+      ticker: data.ticker,
+      cik: data.cik,
+      company_name: data.companyName,
+      filing_date: data.filingDate,
+      report_date: data.reportDate,
+      accession_number: data.accessionNumber,
+      event_items: data.eventItems,
+      event_types: data.eventTypes,
+      severity: data.severity,
+      event_summary: data.eventSummary,
+      key_details: data.keyDetails,
+      financial_impact: data.financialImpact,
+      impact_currency: data.impactCurrency,
+      counterparties: data.counterparties,
+      source_url: data.sourceUrl,
+      raw_text: data.rawText,
+    }, { onConflict: 'accession_number' });
+
+  if (error) {
+    console.error('[saveMaterialEvent] Error:', error);
+  }
+
+  return { data: result, error };
+}
+
+// =====================================================
 // Export for testing
 // =====================================================
 
