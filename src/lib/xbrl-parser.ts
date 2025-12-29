@@ -571,12 +571,18 @@ export function getXBRLParser(): XBRLParser {
  * Fetch company facts from SEC API (Goldman Sachs-grade)
  * Uses SEC's pre-parsed XBRL data - 100% reliable, no parsing needed
  */
-export async function fetchCompanyFactsFromSEC(cik: string, ticker: string, companyName: string): Promise<XBRLFinancial[]> {
+export async function fetchCompanyFactsFromSEC(
+  cik: string,
+  ticker: string,
+  companyName: string,
+  years: number = 3
+): Promise<XBRLFinancial[]> {
   try {
     const paddedCIK = cik.padStart(10, '0');
     const url = `${SEC_COMPANY_FACTS_BASE}/CIK${paddedCIK}.json`;
 
     console.log(`[SEC API] Fetching Company Facts: ${url}`);
+    console.log(`[SEC API] Date filter: Last ${years} years`);
 
     const response = await axios.get(url, {
       headers: {
@@ -588,6 +594,12 @@ export async function fetchCompanyFactsFromSEC(cik: string, ticker: string, comp
 
     const data = response.data;
     console.log(`[SEC API] ✓ Received facts for ${data.entityName}`);
+
+    // Calculate cutoff date (years ago from today)
+    const cutoffDate = new Date();
+    cutoffDate.setFullYear(cutoffDate.getFullYear() - years);
+    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
+    console.log(`[SEC API] Filtering data after: ${cutoffDateStr}`);
 
     // Extract financials from us-gaap facts
     const financials: XBRLFinancial[] = [];
@@ -626,6 +638,11 @@ export async function fetchCompanyFactsFromSEC(cik: string, ticker: string, comp
 
         // Only 10-K and 10-Q filings
         if (!['10-K', '10-Q'].includes(item.form)) {
+          continue;
+        }
+
+        // Date filter: Only include data from last N years
+        if (item.end && item.end < cutoffDateStr) {
           continue;
         }
 

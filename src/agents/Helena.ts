@@ -284,7 +284,8 @@ export class Helena extends BaseAgent {
         const allFinancials = await fetchCompanyFactsFromSEC(
           companyInfo.cik,
           ticker.toUpperCase(),
-          companyInfo.name
+          companyInfo.name,
+          years  // Pass years parameter for date filtering
         );
 
         if (allFinancials.length > 0) {
