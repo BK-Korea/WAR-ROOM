@@ -355,7 +355,11 @@ export async function POST(req: NextRequest) {
                   // Parse forceRefresh from message
                   const forceRefresh = /forceRefresh|재처리|다시|refresh/i.test(message);
 
-                  console.log(`[Helena] forceRefresh: ${forceRefresh}`);
+                  // Parse years parameter from message (e.g., "years=5" or "(years=5)")
+                  const yearsMatch = message.match(/years?\s*[=:]\s*(\d+)/i);
+                  const years = yearsMatch ? parseInt(yearsMatch[1]) : 3;
+
+                  console.log(`[Helena] forceRefresh: ${forceRefresh}, years: ${years}`);
 
                   // Create progress callback
                   const onProgress = (status: string) => {
@@ -368,7 +372,7 @@ export async function POST(req: NextRequest) {
                     'prepare_company_data',
                     {
                       ticker,
-                      years: 3,
+                      years,
                       filingTypes: ['10-K', '10-Q', '20-F'],
                       forceRefresh,
                       onProgress,
