@@ -2,14 +2,18 @@
 /**
  * Quick Integration Test Script
  * Tests Helena → Dorothy flow without vitest runner
+ *
+ * CRITICAL: dotenv must load BEFORE any imports that use env vars
  */
 
+// Load environment variables FIRST
 import { config } from 'dotenv';
 config();
 
-import { supabase } from '../src/lib/supabase';
-import { Helena } from '../src/agents/Helena';
-import { Dorothy } from '../src/agents/Dorothy';
+// Dynamic imports to ensure env vars are loaded first
+const { supabase } = await import('../src/lib/supabase.js');
+const { Helena } = await import('../src/agents/Helena.js');
+const { Dorothy } = await import('../src/agents/Dorothy.js');
 
 const TEST_TICKER = 'AAPL';
 const TEST_YEAR = 2024;
@@ -31,8 +35,9 @@ async function runIntegrationTest() {
     // Step 2: Helena preparation
     console.log('📊 Step 2: Helena - Fetching SEC data...');
     const helena = new Helena();
+    await helena.initialize();
 
-    const helenaResult = await helena.executeTask(
+    const helenaResult = await helena.execute(
       'prepare_company_data',
       {
         message: `${TEST_TICKER} 데이터 준비해줘`,
@@ -40,7 +45,12 @@ async function runIntegrationTest() {
         years: 3,
         filingTypes: ['10-K', '10-Q']
       },
-      (msg) => console.log(`   [Helena] ${msg}`)
+      {
+        agentName: 'Helena',
+        userId: 'test-user',
+        sessionId: 'test-session',
+        timestamp: new Date()
+      }
     );
 
     if (!helenaResult.success) {
@@ -80,14 +90,20 @@ async function runIntegrationTest() {
     // Step 4: Dorothy analysis
     console.log('💼 Step 4: Dorothy - Analyzing data...');
     const dorothy = new Dorothy();
+    await dorothy.initialize();
 
-    const dorothyResult = await dorothy.executeTask(
+    const dorothyResult = await dorothy.execute(
       'answer_question',
       {
         message: `${TEST_YEAR}년 ${TEST_TICKER} 재무 분석해줘`,
         conversationHistory: []
       },
-      (msg) => console.log(`   [Dorothy] ${msg}`)
+      {
+        agentName: 'Dorothy',
+        userId: 'test-user',
+        sessionId: 'test-session',
+        timestamp: new Date()
+      }
     );
 
     if (!dorothyResult.success) {
@@ -114,7 +130,7 @@ async function runIntegrationTest() {
     console.log(`   Before re-run: ${beforeCount} rows`);
 
     // Re-run Helena without forceRefresh
-    await helena.executeTask(
+    await helena.execute(
       'prepare_company_data',
       {
         message: `${TEST_TICKER} 데이터 준비해줘`,
@@ -123,7 +139,12 @@ async function runIntegrationTest() {
         filingTypes: ['10-K', '10-Q'],
         forceRefresh: false
       },
-      () => {}
+      {
+        agentName: 'Helena',
+        userId: 'test-user',
+        sessionId: 'test-session',
+        timestamp: new Date()
+      }
     );
 
     const { count: afterCount } = await supabase

@@ -36,13 +36,10 @@ describe('Helena → Dorothy Integration', () => {
     console.log('\n📊 Testing Helena data preparation...');
 
     const helena = new Helena();
-
-    // Mock progress callback
-    const progressLogs: string[] = [];
-    const progress = (msg: string) => progressLogs.push(msg);
+    await helena.initialize();
 
     // Execute Helena task
-    const result = await helena.executeTask(
+    const result = await helena.execute(
       'prepare_company_data',
       {
         message: `${TEST_TICKER} 데이터 준비해줘`,
@@ -50,7 +47,12 @@ describe('Helena → Dorothy Integration', () => {
         years: 3,
         filingTypes: ['10-K', '10-Q']
       },
-      progress
+      {
+        agentName: 'Helena',
+        userId: 'test-user',
+        sessionId: 'test-session',
+        timestamp: new Date()
+      }
     );
 
     // Verify result
@@ -87,19 +89,21 @@ describe('Helena → Dorothy Integration', () => {
     console.log('\n💼 Testing Dorothy data retrieval...');
 
     const dorothy = new Dorothy();
-
-    // Mock progress callback
-    const progressLogs: string[] = [];
-    const progress = (msg: string) => progressLogs.push(msg);
+    await dorothy.initialize();
 
     // Execute Dorothy task
-    const result = await dorothy.executeTask(
+    const result = await dorothy.execute(
       'answer_question',
       {
         message: `${TEST_YEAR}년 ${TEST_TICKER} 재무 분석해줘`,
         conversationHistory: []
       },
-      progress
+      {
+        agentName: 'Dorothy',
+        userId: 'test-user',
+        sessionId: 'test-session',
+        timestamp: new Date()
+      }
     );
 
     // Verify result
@@ -137,9 +141,9 @@ describe('Helena → Dorothy Integration', () => {
 
     // Run Helena again (without forceRefresh)
     const helena = new Helena();
-    const progress = (msg: string) => {};
+    await helena.initialize();
 
-    const result = await helena.executeTask(
+    const result = await helena.execute(
       'prepare_company_data',
       {
         message: `${TEST_TICKER} 데이터 준비해줘`,
@@ -148,7 +152,12 @@ describe('Helena → Dorothy Integration', () => {
         filingTypes: ['10-K', '10-Q'],
         forceRefresh: false
       },
-      progress
+      {
+        agentName: 'Helena',
+        userId: 'test-user',
+        sessionId: 'test-session',
+        timestamp: new Date()
+      }
     );
 
     expect(result.success).toBe(true);
