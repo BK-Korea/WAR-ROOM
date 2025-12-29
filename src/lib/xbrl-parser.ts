@@ -600,30 +600,61 @@ export async function fetchCompanyFactsFromSEC(
     const oldestFiscalYear = currentFiscalYear - years + 1;
     console.log(`[SEC API] Filtering fiscal years: ${oldestFiscalYear} - ${currentFiscalYear} (${years} years)`);
 
-    // Extract financials from us-gaap facts
+    // Extract financials from both us-gaap and ifrs-full facts
+    // Support both US GAAP (American companies) and IFRS (foreign companies)
     const financials: XBRLFinancial[] = [];
     const usGaap = data.facts?.['us-gaap'] || {};
+    const ifrsFull = data.facts?.['ifrs-full'] || {};
 
-    // Key metrics we want
-    const metrics = [
-      'Revenues',
-      'RevenueFromContractWithCustomerExcludingAssessedTax',
-      'SalesRevenueNet',
-      'NetIncomeLoss',
-      'GrossProfit',
-      'OperatingIncomeLoss',
-      'Assets',
-      'AssetsCurrent',
-      'Liabilities',
-      'LiabilitiesCurrent',
-      'StockholdersEquity',
-      'CashAndCashEquivalentsAtCarryingValue',
-      'EarningsPerShareBasic',
-      'EarningsPerShareDiluted',
+    // Metric mappings: US GAAP ↔ IFRS equivalents
+    // Each entry tries US GAAP first, then IFRS if not found
+    const metricMappings = [
+      // Revenue metrics
+      { usGaap: ['Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet'], ifrs: ['Revenue'], label: 'Revenue' },
+      // Profit/Loss metrics
+      { usGaap: ['NetIncomeLoss'], ifrs: ['ProfitLoss'], label: 'Net Income / Profit' },
+      { usGaap: ['GrossProfit'], ifrs: ['GrossProfit'], label: 'Gross Profit' },
+      { usGaap: ['OperatingIncomeLoss'], ifrs: ['ProfitLossFromOperatingActivities'], label: 'Operating Income' },
+      // Balance Sheet metrics
+      { usGaap: ['Assets'], ifrs: ['Assets'], label: 'Total Assets' },
+      { usGaap: ['AssetsCurrent'], ifrs: ['CurrentAssets'], label: 'Current Assets' },
+      { usGaap: ['Liabilities'], ifrs: ['Liabilities'], label: 'Total Liabilities' },
+      { usGaap: ['LiabilitiesCurrent'], ifrs: ['CurrentLiabilities'], label: 'Current Liabilities' },
+      { usGaap: ['StockholdersEquity'], ifrs: ['Equity'], label: 'Stockholders Equity' },
+      { usGaap: ['CashAndCashEquivalentsAtCarryingValue'], ifrs: ['CashAndCashEquivalents'], label: 'Cash and Cash Equivalents' },
+      // EPS metrics (IFRS doesn't have direct equivalent in Company Facts API)
+      { usGaap: ['EarningsPerShareBasic'], ifrs: [], label: 'EPS Basic' },
+      { usGaap: ['EarningsPerShareDiluted'], ifrs: [], label: 'EPS Diluted' },
     ];
 
-    for (const metricTag of metrics) {
-      const metric = usGaap[metricTag];
+    for (const mapping of metricMappings) {
+      let metric: any = null;
+      let namespace: string = '';
+      let metricTag: string = '';
+
+      // Try US GAAP tags first
+      for (const tag of mapping.usGaap) {
+        if (usGaap[tag]?.units) {
+          metric = usGaap[tag];
+          namespace = 'us-gaap';
+          metricTag = tag;
+          break;
+        }
+      }
+
+      // If not found in US GAAP, try IFRS tags
+      if (!metric) {
+        for (const tag of mapping.ifrs) {
+          if (ifrsFull[tag]?.units) {
+            metric = ifrsFull[tag];
+            namespace = 'ifrs-full';
+            metricTag = tag;
+            break;
+          }
+        }
+      }
+
+      // Skip if metric not found in either namespace
       if (!metric || !metric.units) continue;
 
       // Get USD values
@@ -635,8 +666,10 @@ export async function fetchCompanyFactsFromSEC(
           continue;
         }
 
-        // Only 10-K and 10-Q filings
-        if (!['10-K', '10-Q'].includes(item.form)) {
+        // Support both US and foreign company filings
+        // 10-K, 10-Q: US domestic companies
+        // 20-F: Foreign private issuers (IFRS companies)
+        if (!['10-K', '10-Q', '20-F'].includes(item.form)) {
           continue;
         }
 
@@ -652,8 +685,8 @@ export async function fetchCompanyFactsFromSEC(
         const periodType = item.fp === 'FY' ? 'annual' : 'quarterly';
 
         financials.push({
-          xbrlTag: `us-gaap:${metricTag}`,
-          label: metric.label || metricTag,
+          xbrlTag: `${namespace}:${metricTag}`,  // Use actual namespace (us-gaap or ifrs-full)
+          label: mapping.label || metric.label || metricTag,  // Use standardized label
           value: item.val,
           unit: 'USD',
           scale: detectScaleFromValue(item.val),
